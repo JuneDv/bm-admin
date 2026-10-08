@@ -6,6 +6,12 @@
 <title>공간제작소 관리자</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f4f85">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="공간 관리자">
 <style>
   :root {
     --bg:#f4f6fa; --card:#fff; --line:#e3e8f0; --text:#1f2a3a; --mute:#6b7788;
@@ -167,6 +173,22 @@
   .mem.on .dot { background:var(--green); } .mem.off { color:var(--mute); border-style:dashed; }
   .mem .note { color:var(--mute); font-size:11px; }
 
+  /* ---- 알림 ---- */
+  .bell { position:relative; border:0; background:transparent; font-size:18px; line-height:1; padding:5px 7px; border-radius:8px; }
+  .bell.on { background:var(--head); }
+  .bell .dot { position:absolute; top:3px; right:3px; width:8px; height:8px; border-radius:50%; background:var(--amber); display:none; }
+  .bell.need .dot { display:block; }
+  .nt { max-width:640px; margin:0 auto; }
+  .nt h2 { margin:0 0 6px; font-size:20px; color:var(--navy-d); }
+  .nt .st { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 14px; border-radius:10px; background:#f7f9fc; border:1px solid var(--line); margin-top:12px; white-space:normal; }
+  .nt .st.ok { background:#eef5f0; border-color:#cfe3d6; } .nt .st.warn { background:#fff7e3; border-color:#f1dfae; }
+  .nt .st .t { flex:1; min-width:200px; font-size:14px; }
+  .sw { display:flex; align-items:flex-start; gap:8px; font-size:14px; padding:6px 0; cursor:pointer; }
+  .sw input { margin-top:3px; }
+  .dev { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); font-size:14px; } .dev:last-child { border-bottom:0; }
+  .dev .ic { font-size:20px; } .dev .t { flex:1; } .dev .sub { display:block; }
+  .steps { margin:6px 0 0; padding-left:20px; font-size:14px; } .steps li { margin:4px 0; }
+
   /* ---- 관리자 관리 ---- */
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
   .saved { color:var(--green); font-size:12px; margin-left:6px; }
@@ -195,6 +217,7 @@
     <div class="me">
       <span id="syncInfo" class="sub"></span>
       <span><b id="meName"></b> <span class="email" id="meEmail"></span></span>
+      <button class="bell" id="bell" title="알림 설정" onclick="go('#notify')">🔔<span class="dot"></span></button>
       <button class="lnk" onclick="signOut()">로그아웃</button>
     </div>
   </div>
@@ -270,6 +293,7 @@ async function afterAuth() {
   $('#meEmail').textContent = me.email;
   $('#brandRole').textContent = ROLE_LABEL[me.role] + (me.staff_name ? ` · ${me.staff_name}` : '');
   $('#navUsers').classList.toggle('hidden', me.role !== 'owner');
+  pushInit();
   await loadData();
   if (!location.hash || location.hash === '#login') location.hash = '#sites';
   render();
@@ -278,7 +302,7 @@ window.signIn = async () => {
   const { error } = await sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + location.pathname } });
   if (error) renderMsg('로그인을 시작하지 못했습니다: ' + error.message, true);
 };
-window.signOut = async () => { await sb.auth.signOut(); location.hash = ''; };
+window.signOut = async () => { await pushForget(); await sb.auth.signOut(); location.hash = ''; };
 
 // ---------- 데이터 ----------
 async function loadData() {
@@ -317,7 +341,9 @@ function render() {
   if (!h.startsWith('#site/')) closeChat();
   $('#navSites').classList.toggle('on', h.startsWith('#sites') || h.startsWith('#site/'));
   $('#navUsers').classList.toggle('on', h.startsWith('#users'));
+  $('#bell').classList.toggle('on', h.startsWith('#notify'));
   if (h.startsWith('#site/')) renderDetail(decodeURIComponent(h.slice(6)));
+  else if (h.startsWith('#notify')) renderNotify();
   else if (h.startsWith('#users') && S.me.role === 'owner') renderUsers();
   else renderList();
 }
@@ -608,6 +634,8 @@ async function refreshUnread() {
   if (!S.user) return;
   const { data, error } = await sb.rpc('unread_counts');
   if (!error) { S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)])); S.calls = Object.fromEntries((data || []).filter(r => Number(r.calls) > 0).map(r => [r.bm_key, Number(r.calls)])); }
+  // 홈 화면 아이콘 배지 (설치형 앱에서만 동작)
+  try { const n = Object.values(S.unread).reduce((a, b) => a + b, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
 }
 function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.urls = {}; S.chat.pending = []; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
@@ -811,6 +839,105 @@ function renderDetail(key) {
   window.scrollTo(0, 0);
   openChat(site);
   refreshMembers(rec);
+}
+
+// ----- 푸시 알림 (웹 푸시 / VAPID) -----
+// 범위: 📣 호출(항상) + 내 담당 현장 새 메시지(개인 설정). 수신자 판정은 서버(RPC push_recipients), 전송은 Edge Function send-push.
+// 안드로이드: Chrome·APK(TWA) / 아이폰: Safari → 홈 화면에 추가한 앱에서만 (iOS 16.4+)
+const PUSH_FN = `${SUPABASE_URL}/functions/v1/send-push`;
+const PUSH = { reg: null, sub: null, supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window };
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(navigator.userAgent);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const platformOf = () => isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
+const b64ToBytes = s => { const p = '='.repeat((4 - s.length % 4) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+async function pushInit() {
+  if (!('serviceWorker' in navigator)) return;
+  try { PUSH.reg = await navigator.serviceWorker.register('sw.js'); } catch (e) { console.warn('sw 등록 실패', e); return; }
+  navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'open' && e.data.hash) { location.hash = e.data.hash; if (location.hash === e.data.hash) render(); } });
+  if (!PUSH.supported) return;
+  PUSH.sub = await PUSH.reg.pushManager.getSubscription().catch(() => null);
+  if (PUSH.sub) await pushSave(PUSH.sub);          // 마지막 확인 시각 갱신
+  updateBell();
+}
+function updateBell() {
+  const need = PUSH.supported && !PUSH.sub && Notification.permission !== 'denied' && (!isIOS || isStandalone());
+  $('#bell')?.classList.toggle('need', need);
+}
+async function pushSave(sub) {
+  if (!S.me) return;
+  const j = sub.toJSON();
+  const { error } = await sb.from('push_subscriptions').upsert({ user_id: S.me.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, ua: navigator.userAgent.slice(0, 200), platform: platformOf(), last_seen_at: new Date().toISOString() }, { onConflict: 'endpoint' });
+  if (error) console.warn('구독 저장 실패', error.message);
+  return !error;
+}
+async function pushEnable() {
+  if (!PUSH.supported || !PUSH.reg) throw new Error('이 브라우저는 푸시 알림을 지원하지 않아요');
+  if (isIOS && !isStandalone()) throw new Error('아이폰은 홈 화면에 추가한 앱에서만 알림을 켤 수 있어요');
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('알림 권한이 허용되지 않았어요');
+  const r = await fetch(PUSH_FN); const { publicKey } = await r.json();
+  if (!publicKey) throw new Error('서버 키를 받지 못했어요');
+  PUSH.sub = await PUSH.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+  if (!(await pushSave(PUSH.sub))) throw new Error('구독 정보를 저장하지 못했어요');
+  updateBell();
+}
+async function pushForget() {   // 이 기기 구독 해제 (로그아웃·알림 끄기)
+  try {
+    const sub = PUSH.sub || await PUSH.reg?.pushManager.getSubscription();
+    if (!sub) return;
+    if (S.me) await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+    await sub.unsubscribe(); PUSH.sub = null; updateBell();
+  } catch (e) { console.warn('구독 해제 실패', e); }
+}
+async function pushTest() {
+  const { data, error } = await sb.functions.invoke('send-push', { body: { test: true, endpoint: PUSH.sub?.endpoint || undefined } });
+  if (error) throw error;
+  return data;
+}
+Object.assign(window.__dbg, { PUSH, pushEnable, pushForget, pushTest });
+const uaLabel = ua => { ua = ua || ''; const b = /SamsungBrowser/.test(ua) ? 'Samsung 인터넷' : /Edg\//.test(ua) ? 'Edge' : /CriOS/.test(ua) ? 'Chrome(iOS)' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox/.test(ua) ? 'Firefox' : '브라우저'; return b; };
+async function renderNotify() {
+  const sup = PUSH.supported, perm = sup ? Notification.permission : 'unsupported';
+  const [{ data: devs }, { data: pref }] = await Promise.all([
+    sb.from('push_subscriptions').select('id, endpoint, platform, ua, created_at, last_seen_at').eq('user_id', S.me.id).order('created_at'),
+    sb.from('notification_prefs').select('messages').eq('user_id', S.me.id).maybeSingle(),
+  ]);
+  if (!location.hash.startsWith('#notify')) return;
+  const list = devs || []; const messagesOn = pref ? pref.messages : true;
+  const here = PUSH.sub?.endpoint; const thisOn = !!(here && list.some(d => d.endpoint === here));
+  let cls = 'warn', text = '', btn = '';
+  if (!sup) { text = '이 브라우저는 푸시 알림을 지원하지 않아요. 아이폰은 Safari에서 홈 화면에 추가한 뒤, 안드로이드는 Chrome이나 설치한 앱에서 열어 주세요.'; }
+  else if (isIOS && !isStandalone()) { text = '아이폰은 <b>홈 화면에 추가한 앱</b>에서만 알림을 켤 수 있어요. 아래 설치 안내를 따라 추가한 뒤 그 앱에서 다시 열어 주세요.'; }
+  else if (perm === 'denied') { text = '이 기기에서 알림이 <b>차단</b>되어 있어요. 브라우저(또는 휴대폰 설정 → 앱 → 알림)에서 이 사이트의 알림을 허용한 뒤 다시 시도해 주세요.'; }
+  else if (thisOn) { cls = 'ok'; text = '이 기기에서 알림을 받고 있어요.'; btn = `<button class="btn sm" id="pushOff">이 기기 알림 끄기</button><button class="btn sm" id="pushTest">테스트 알림</button>`; }
+  else { text = '이 기기는 아직 알림을 받지 않아요. 버튼을 눌러 켜 주세요.'; btn = `<button class="btn primary sm" id="pushOn">이 기기에서 알림 받기</button>`; }
+  const devRow = d => `<div class="dev"><span class="ic">${d.platform === 'ios' ? '📱' : d.platform === 'android' ? '🤖' : '💻'}</span><span class="t">${esc(uaLabel(d.ua))} · ${d.platform === 'ios' ? '아이폰' : d.platform === 'android' ? '안드로이드' : 'PC'}${d.endpoint === here ? ' <span class="tag">이 기기</span>' : ''}<span class="sub">등록 ${fmtTime(d.created_at)} · 마지막 확인 ${fmtTime(d.last_seen_at)}</span></span><button class="btn sm" data-rm="${d.id}" data-ep="${esc(d.endpoint)}">삭제</button></div>`;
+  $('#main').innerHTML = `<div class="nt"><div class="card">
+    <h2>🔔 알림 설정</h2>
+    <p class="sub" style="margin:0">현장 대화에서 <b>📣 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
+    <div class="st ${cls}"><span class="t">${text}</span>${btn}</div>
+    <div class="sec"><h3>무엇을 받을까요</h3>
+      <label class="sw"><input type="checkbox" checked disabled> <span>📣 <b>호출</b> — 항상 받음 <span class="sub">(받는 사람으로 내 역할이 지정된 메시지)</span></span></label>
+      <label class="sw"><input type="checkbox" id="prefMsg" ${messagesOn ? 'checked' : ''}> <span>💬 <b>내 담당 현장의 새 메시지</b> <span class="sub">(영업은 끝까지, 설계는 실시도면 완료 전, 인테리어는 설계 완료 전까지 · 마스터도 담당 현장만)</span></span></label>
+    </div>
+    <div class="sec"><h3>알림 받는 기기 <span class="sub" style="font-weight:400">${list.length}대</span></h3>${list.length ? list.map(devRow).join('') : '<div class="sub">등록된 기기가 없어요</div>'}</div>
+    <div class="sec"><h3>설치 안내</h3>
+      <details ${isIOS ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">📱 아이폰 (iOS 16.4 이상)</summary><ol class="steps"><li><b>Safari</b>로 이 사이트를 열어요 (Chrome 앱에서는 안 돼요)</li><li>하단 <b>공유</b> 버튼 → <b>홈 화면에 추가</b></li><li>홈 화면의 <b>공간 관리자</b> 앱을 열고 로그인 → 🔔 → <b>이 기기에서 알림 받기</b></li></ol></details>
+      <details ${isAndroid ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">🤖 안드로이드</summary><ol class="steps"><li>전달받은 <b>APK 파일</b>을 열어 설치해요 (처음 한 번 "출처를 알 수 없는 앱 허용"이 필요해요)</li><li>앱을 열고 로그인 → 🔔 → <b>이 기기에서 알림 받기</b></li><li>앱 없이 Chrome에서 바로 켜도 돼요</li></ol></details>
+    </div>
+    <div id="ntMsg" class="sub" style="margin-top:10px"></div>
+  </div></div>`;
+  const say = (m, err) => { const el = $('#ntMsg'); if (el) { el.textContent = m; el.style.color = err ? 'var(--red)' : 'var(--green)'; } };
+  const busy = async (btn, fn) => { if (btn) btn.disabled = true; try { await fn(); } catch (e) { say(e.message || String(e), true); if (btn) btn.disabled = false; } };
+  $('#pushOn')?.addEventListener('click', e => busy(e.target, async () => { await pushEnable(); say('알림을 켰어요. 테스트 알림을 보내 확인해 보세요.'); renderNotify(); }));
+  $('#pushOff')?.addEventListener('click', e => busy(e.target, async () => { await pushForget(); renderNotify(); }));
+  $('#pushTest')?.addEventListener('click', e => busy(e.target, async () => { const r = await pushTest(); say(r?.sent ? '테스트 알림을 보냈어요. 잠시 뒤 알림이 뜨는지 확인해 주세요.' : `보내지 못했어요 (${JSON.stringify(r)})`, !r?.sent); e.target.disabled = false; }));
+  $('#prefMsg')?.addEventListener('change', async e => { const { error } = await sb.from('notification_prefs').upsert({ user_id: S.me.id, messages: e.target.checked, updated_at: new Date().toISOString() }); say(error ? '저장 실패: ' + error.message : (e.target.checked ? '새 메시지 알림을 켰어요' : '새 메시지 알림을 꺼요 (호출은 계속 받아요)'), !!error); });
+  document.querySelectorAll('button[data-rm]').forEach(b => b.onclick = () => busy(b, async () => {
+    if (b.dataset.ep === here) { await pushForget(); } else { const { error } = await sb.from('push_subscriptions').delete().eq('id', b.dataset.rm); if (error) throw error; }
+    renderNotify();
+  }));
 }
 
 // ----- 관리자 관리 (소유자) -----

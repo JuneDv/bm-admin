@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "공간제작소 관리자",
+  "short_name": "공간 관리자",
+  "description": "공간제작소 현장 공정 현황과 담당자 대화",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6fa",
+  "theme_color": "#2f4f85",
+  "icons": [
+    { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
