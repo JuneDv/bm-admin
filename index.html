@@ -162,11 +162,12 @@
   .chan button { flex:1; border:1px solid var(--line); background:var(--card); padding:7px 8px; border-radius:10px; font-size:13px; font-weight:600; color:var(--mute); }
   .chan button.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .chan button[data-c="owner"].on { background:var(--talk-y); border-color:var(--talk-y); color:var(--ink); }
-  .chat.owner-ch .msgs { background:#fff8e6; border-radius:10px; padding:6px 4px; }
+  /* 건축주톡 | 내부톡: 브라우저 기본 가로 넘김 (바깥 '현장 정보 | 공간 Talk'와 같은 방식, 끝에서 밀면 바깥으로 이어짐) */
+  .tpager { display:flex; align-items:flex-start; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .tpager::-webkit-scrollbar { display:none; }
+  .tpager > .tpg { flex:0 0 100%; min-width:0; scroll-snap-align:start; scroll-snap-stop:always; }
+  .tpg[data-c="owner"] .msgs { background:#fff8e6; border-radius:10px; padding:6px 4px; }
   .chat .chan-note { font-size:12px; color:#8a5a14; margin:-2px 0 8px; }
-  .chat .msgs.slide-l { animation:tkSlideL .22s ease-out; } .chat .msgs.slide-r { animation:tkSlideR .22s ease-out; }
-  @keyframes tkSlideL { from { transform:translateX(32px); opacity:.25; } to { transform:none; opacity:1; } }
-  @keyframes tkSlideR { from { transform:translateX(-32px); opacity:.25; } to { transform:none; opacity:1; } }
   .msg .meta .r.owner { background:var(--talk-y); color:var(--ink); }
   .msg .call-tag { display:inline-block; background:#fbeaea; color:#7a2e2e; border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; margin-bottom:3px; }
   .msg.mine .call-tag { background:#fbeaea; }
@@ -775,7 +776,7 @@ async function refreshUnread() {
   // 홈 화면 아이콘 배지 (설치형 앱에서만 동작)
   try { const n = Object.values(S.unread).reduce((a, b) => a + b, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
 }
-function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.urls = {}; S.chat.pending = []; }
+function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
 const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
 const isImg = f => /^image\//.test(f.type || '');
@@ -793,28 +794,30 @@ async function shrinkImage(file, maxEdge = IMG_MAX_EDGE, quality = IMG_QUALITY) 
     return { blob, width: w, height: h, type: 'image/jpeg', renamed: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
   } catch { return { blob: file, type: file.type }; }
 }
-Object.assign(window.__dbg, { shrinkImage, renderMsgs: e => renderMsgs(e) });
+Object.assign(window.__dbg, { shrinkImage, renderMsgs: (e, ch) => renderMsgs(e, ch) });
 async function openChat(site) {
-  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {}; S.chat.channel = 'staff';
+  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {}; S.chat.channel = 'staff'; S.chat.byCh = { staff: [], owner: [] };
+  const both = talkOpen(site);   // 공간 Talk를 연 현장: 건축주톡·내부톡을 함께 불러 나란히 둠
+  let first = true;
   const load = async () => {
-    const ch = S.chat.channel;
-    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, target_role, call_owner, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).eq('channel', ch).order('created_at').limit(300);
-    if (S.chat.bmKey !== site.bm_key || S.chat.channel !== ch) return;
-    S.chat.messages = data || [];
-    const paths = S.chat.messages.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
+    let q = sb.from('site_messages').select('id, channel, user_id, sender_name, sender_role, target_role, call_owner, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key);
+    if (!both) q = q.eq('channel', 'staff');
+    const { data, error } = await q.order('created_at', { ascending:false }).limit(both ? 600 : 300);   // 최신 기준으로 가져와 시간순으로
+    if (S.chat.bmKey !== site.bm_key) return;
+    const all = (data || []).slice().reverse();
+    S.chat.byCh = { staff: all.filter(m => m.channel !== 'owner'), owner: all.filter(m => m.channel === 'owner') };
+    // 처음 열 때: 가장 최근 메시지가 있는 톡으로 (건축주 메시지 알림을 눌러 들어온 경우 바로 보이게)
+    if (first && both && all.length && all[all.length - 1].channel === 'owner') S.chat.channel = 'owner';
+    first = false;
+    S.chat.messages = S.chat.byCh[S.chat.channel];
+    const paths = all.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
     if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = s.signedUrl; }); }
     if (S.chat.bmKey !== site.bm_key) return;
-    renderMsgs(error);
+    renderMsgs(error, 'staff'); if (both) renderMsgs(error, 'owner');
     if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
     if (S.calls[site.bm_key]) delete S.calls[site.bm_key];
     sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
   };
-  // 공간 Talk를 연 현장: 가장 최근 메시지가 있는 쪽(내부/건축주)으로 먼저 열기 — 건축주 메시지 알림을 눌러 들어온 경우 바로 보이게
-  if (talkOpen(site)) {
-    const { data: last } = await sb.from('site_messages').select('channel').eq('bm_key', site.bm_key).order('created_at', { ascending:false }).limit(1);
-    if (S.chat.bmKey !== site.bm_key) return;
-    if (last?.[0]?.channel === 'owner') S.chat.channel = 'owner';
-  }
   await load();
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
@@ -843,8 +846,8 @@ async function openChat(site) {
   };
   renderTargets();
   // 채널 전환: 공간 Talk를 연 현장만. 화면 순서 = 건축주톡(왼쪽) | 내부톡(오른쪽)
-  //  휴대폰: 공간 Talk 칸 안에서 옆으로 밀면 톡 전환, 건축주톡에서 손가락을 오른쪽으로 밀면 바깥(현장 정보)으로 넘어감
-  const chan = $('#chan');
+  //  두 목록을 나란히 두고 브라우저 기본 가로 넘김 → 손가락을 따라 움직이고, 건축주톡에서 더 밀면 바깥(현장 정보)으로 이어짐
+  const chan = $('#chan'), tpager = $('#tpager');
   const CH_ORDER = ['owner', 'staff'];
   const applyChannel = () => {
     const owner = S.chat.channel === 'owner';
@@ -854,31 +857,25 @@ async function openChat(site) {
     $('#chatScope').textContent = owner ? '· 건축주도 함께 봐요' : '· 담당자만 볼 수 있어요';
     inp.placeholder = owner ? '건축주에게 보이는 메시지' : touch ? '메시지 입력' : '메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)';
   };
-  const switchChannel = async c => {
-    if (S.chat.channel === c) return;
-    const toRight = CH_ORDER.indexOf(c) > CH_ORDER.indexOf(S.chat.channel);
-    S.chat.channel = c; S.chat.target = null; S.chat.messages = [];
+  const setChannel = c => {
+    if (!c || S.chat.channel === c) return;
+    S.chat.channel = c; S.chat.target = null; S.chat.messages = S.chat.byCh[c] || [];
     applyChannel(); renderTargets();
-    const m = $('#msgs'); m.innerHTML = '<div class="sub">불러오는 중…</div>';
-    m.classList.remove('slide-l', 'slide-r'); void m.offsetWidth; m.classList.add(toRight ? 'slide-l' : 'slide-r');
-    await load();
   };
-  if (talkOpen(site) && chan) {
+  if (both && chan && tpager) {
     chan.classList.remove('hidden');
-    chan.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => switchChannel(b.dataset.c));
-    // 가로 스와이프: 첫 움직임에서 방향을 정함. 옆에 톡이 있으면 톡 전환(바깥 스크롤 막음), 없으면 바깥 스와이프에 맡김
-    const card = $('.card.chat'); let sx = 0, sy = 0, mode = null, next = null;
-    card.addEventListener('touchstart', e => { mode = e.touches.length === 1 ? null : 'v'; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
-    card.addEventListener('touchmove', e => {
-      if (mode) { if (mode === 'talk' && e.cancelable) e.preventDefault(); return; }
-      const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-      if (Math.abs(dy) >= Math.abs(dx)) { mode = 'v'; return; }              // 세로: 대화 목록 스크롤
-      const i = CH_ORDER.indexOf(S.chat.channel) + (dx < 0 ? 1 : -1);       // 손가락 왼쪽 → 오른쪽 톡 / 오른쪽 → 왼쪽 톡
-      if (i >= 0 && i < CH_ORDER.length) { mode = 'talk'; next = CH_ORDER[i]; if (e.cancelable) e.preventDefault(); }
-      else mode = 'pass';                                                     // 끝 톡: 바깥(현장 정보 ↔ 공간 Talk)으로
-    }, { passive: false });
-    card.addEventListener('touchend', e => { if (mode === 'talk' && Math.abs(e.changedTouches[0].clientX - sx) > 40) switchChannel(next); mode = null; }, { passive: true });
+    const pageOf = () => Math.round(tpager.scrollLeft / Math.max(1, tpager.clientWidth));
+    const goTo = c => tpager.scrollTo({ left: tpager.clientWidth * CH_ORDER.indexOf(c), behavior: 'smooth' });
+    // 사용자가 직접 넘긴 경우만 톡을 바꿈. 브라우저가 배치 변화 때 저절로 다른 톡으로 맞추면 되돌림 (엉뚱한 톡에 보내지 않게)
+    let userAt = 0; const mark = () => { userAt = Date.now(); };
+    ['touchstart', 'touchmove', 'pointerdown', 'wheel'].forEach(ev => tpager.addEventListener(ev, mark, { passive: true }));
+    chan.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => { mark(); goTo(b.dataset.c); });
+    tpager.addEventListener('scroll', () => {
+      const c = CH_ORDER[pageOf()]; if (!c || c === S.chat.channel) return;
+      if (Date.now() - userAt > 1500) { tpager.scrollLeft = tpager.clientWidth * CH_ORDER.indexOf(S.chat.channel); return; }
+      setChannel(c);
+    }, { passive: true });
+    tpager.scrollLeft = tpager.clientWidth * CH_ORDER.indexOf(S.chat.channel);
   }
   applyChannel();
   const attInp = $('#attInp');
@@ -941,12 +938,15 @@ function renderAtt(m) {
       : `<a class="file" href="${url}" target="_blank" rel="noopener" download="${esc(f.name)}">${ic('file')} <span>${esc(f.name)}</span> <span class="sub">${fmtSize(f.size)}</span></a>`;
   }).join('')}</div>`;
 }
-function renderMsgs(error) {
-  const el = $('#msgs'); if (!el) return;
+// 톡별 목록 칸: 공간 Talk를 연 현장은 #msgs-owner / #msgs-staff, 그 외는 #msgs
+const msgsEl = ch => $(`#msgs-${ch}`) || (ch === 'staff' ? $('#msgs') : null);
+function renderMsgs(error, ch = S.chat.channel) {
+  const el = msgsEl(ch); if (!el) return;
+  const list = (S.chat.byCh && S.chat.byCh[ch]) || [];
   if (error) { el.innerHTML = `<div class="err">대화를 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
-  if (!S.chat.messages.length) { el.innerHTML = '<div class="sub" style="text-align:center;padding:14px">아직 메시지가 없습니다. 첫 메시지를 남겨 보세요.</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="sub" style="text-align:center;padding:14px">아직 메시지가 없습니다. 첫 메시지를 남겨 보세요.</div>'; return; }
   let lastDay = '';
-  el.innerHTML = S.chat.messages.map(m => {
+  el.innerHTML = list.map(m => {
     const d = new Date(m.created_at);
     const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
     const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
@@ -956,12 +956,12 @@ function renderMsgs(error) {
   el.scrollTop = el.scrollHeight;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('이 메시지를 삭제할까요?')) return;
-    const m = S.chat.messages.find(x => String(x.id) === b.dataset.del);
+    const m = list.find(x => String(x.id) === b.dataset.del);
     const paths = (m?.message_files || []).filter(f => !f.deleted_at).map(f => f.path);
     if (paths.length) await sb.storage.from(BUCKET).remove(paths);
     const { error } = await sb.from('site_messages').delete().eq('id', b.dataset.del);
     if (error) { alert('삭제 실패: ' + error.message); return; }
-    S.chat.messages = S.chat.messages.filter(m => String(m.id) !== b.dataset.del); renderMsgs();
+    S.chat.byCh[ch] = list.filter(x => String(x.id) !== b.dataset.del); if (ch === S.chat.channel) S.chat.messages = S.chat.byCh[ch]; renderMsgs(null, ch);
   });
 }
 
@@ -1010,7 +1010,8 @@ function renderDetail(key) {
         <div class="chan hidden" id="chan"><button data-c="owner">${ic('msg')} 건축주톡</button><button data-c="staff" class="on">내부톡</button></div>
         <div class="chan-note hidden" id="chanNote">여기 쓰는 메시지와 첨부는 건축주 앱에도 보여요.</div>
         <div class="members" id="members">${renderMembers(rec)}</div>
-        <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
+        ${talkOpen(site) ? `<div class="tpager" id="tpager"><div class="tpg" data-c="owner"><div class="msgs" id="msgs-owner"><div class="sub">불러오는 중…</div></div></div><div class="tpg" data-c="staff"><div class="msgs" id="msgs-staff"><div class="sub">불러오는 중…</div></div></div></div>`
+          : `<div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>`}
         ${site.archived_at ? `<div class="notice" style="margin-top:8px">보관된 현장이라 읽기만 할 수 있어요. 대화 기록은 보관 시작일로부터 5년간 유지됩니다.</div>` : ''}
         <div class="chat-in ${site.archived_at ? 'hidden' : ''}">
           <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">${ic('clip')}</button>
