@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "kr.co.ggarch.bmadmin",
+    "sha256_cert_fingerprints": ["12:9D:90:A1:DA:49:DE:F0:40:DE:50:16:66:18:A4:38:4D:61:C3:DB:37:E3:06:70:A8:19:49:4F:E3:7E:2C:47"]
+  }
+}]
