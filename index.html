@@ -162,8 +162,10 @@
   .msg .del { border:0; background:transparent; color:var(--mute); cursor:pointer; font-size:13px; padding:0 2px; }
   .day { text-align:center; font-size:11px; color:var(--mute); margin:6px 0 2px; }
   .chat-in { display:flex; gap:6px; margin-top:8px; align-items:flex-end; }
-  .chat-in textarea { flex:1; resize:none; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font:inherit; line-height:1.4; }
-  .chat-in .btn.icon { padding:8px 10px; }
+  /* 입력칸: 평소 한 줄(버튼과 같은 38px), 글이 길어지면 5줄(118px)까지 자동으로 늘어남 — growInput() */
+  .chat-in textarea { flex:1; min-width:0; resize:none; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font:inherit; line-height:20px; height:38px; max-height:118px; overflow-y:hidden; }
+  .chat-in .btn { height:38px; flex-shrink:0; }
+  .chat-in .btn.icon { padding:0 10px; }
   .att-pending { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
   .att-pending .chip { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .att-pending .chip button { border:0; background:transparent; color:var(--mute); margin-left:4px; cursor:pointer; }
@@ -738,6 +740,11 @@ async function openChat(site) {
   await load();
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
+  const INP_MAX = 118;   // CSS max-height와 같게 (5줄)
+  if (matchMedia('(pointer: coarse)').matches) inp.placeholder = '메시지 입력';   // 휴대폰: 한 줄 칸에 긴 안내문이 잘리고, Shift 키도 없음
+  const growInput = () => { if (!inp.value) { inp.style.height = inp.style.overflowY = ''; return; }   // 빈칸이면 한 줄로 (긴 안내문이 높이를 키우지 않게)
+    inp.style.height = 'auto'; const full = inp.scrollHeight + 2; inp.style.height = Math.min(full, INP_MAX) + 'px'; inp.style.overflowY = full > INP_MAX ? 'auto' : 'hidden'; };
+  inp.addEventListener('input', growInput);
   // 받는 사람 선택: 전체(기본) / 영업 / 설계 / 인테리어 — 담당 업무가 끝난(완료) 역할은 고를 수 없음
   S.chat.target = null;
   const rec = S.computed.find(x => x.site.bm_key === site.bm_key);
@@ -792,7 +799,7 @@ async function openChat(site) {
       S.chat.target = null; renderTargets();
       // 3) 파일 메타 저장
       if (uploaded.length) { const { error: e2 } = await sb.from('message_files').insert(uploaded.map(u => ({ message_id: msg.id, bm_key: site.bm_key, ...u }))); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
-      inp.value = ''; S.chat.pending = []; renderPending();
+      inp.value = ''; growInput(); S.chat.pending = []; renderPending();
       await load();
     } catch (e) { alert('전송 실패: ' + (e.message || e)); }
     inp.disabled = false; $('#msgSend').disabled = false; $('#attBtn').disabled = false; inp.focus();
@@ -882,7 +889,7 @@ function renderDetail(key) {
         <div class="chat-in ${site.archived_at ? 'hidden' : ''}">
           <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">📎</button>
           <input type="file" id="attInp" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.hwp,.hwpx,.zip,.txt,.dwg" class="hidden">
-          <textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+          <textarea id="msgInp" rows="1" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
           <button class="btn primary sm" id="msgSend">보내기</button>
         </div>
         <div class="targets" id="targets"></div>
