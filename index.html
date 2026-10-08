@@ -1061,7 +1061,6 @@ async function renderUsers() {
       <div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>
       <div class="tools" style="margin:8px 0 0"><select data-f="status">${['open','doing','done'].map(s => `<option value="${s}" ${f.status === s ? 'selected' : ''}>${FB_STATUS[s]}</option>`).join('')}</select><input type="text" data-f="reply" value="${esc(f.reply || '')}" placeholder="답글 (저장하면 제보자에게 알림)" style="flex:1 1 200px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><button class="btn sm" data-save="${f.id}">저장</button><span class="saved"></span></div></div>`).join('') : '<div class="sub">제보가 없어요</div>'}</div></details>`;
   const pushBy = Object.fromEntries((pushRes.data || []).map(r => [r.user_id, r]));
-  const PLAT = { ios: '아이폰', android: '안드로이드', desktop: 'PC' };
   const pushCell = u => {
     if (!isApprovedRole(u.role)) return '<span class="sub">-</span>';
     const p = pushBy[u.id]; const n = Number(p?.devices || 0);
