@@ -47,6 +47,10 @@
   .role { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:700; background:var(--head); color:var(--navy-d); }
   .role.master, .role.admin, .role.gongmu, .role.pm { background:#efe4c8; color:#5a4310; }
   .role.owner { background:#dfe9e2; color:#2f5b40; }
+  /* 선 아이콘 (Lucide, ISC) — ic('이름')으로 넣음. 글자 크기를 따라감 */
+  .ic { width:1.15em; height:1.15em; vertical-align:-0.2em; flex-shrink:0; }
+  .bell .ic { width:20px; height:20px; vertical-align:middle; color:var(--text); }
+  .dev .ic { color:var(--navy-d); }
   .lnk { border:0; background:transparent; color:var(--mute); text-decoration:underline; padding:0; }
   #bug { font-size:12px; text-decoration:none; } #bug.on { color:var(--navy-d); font-weight:600; }
 
@@ -246,7 +250,7 @@
     <div class="me">
       <span id="syncInfo" class="sub"></span>
       <span><b id="meName"></b> <span class="email" id="meEmail"></span></span>
-      <button class="bell" id="bell" title="알림 설정" onclick="go('#notify')">🔔<span class="dot"></span></button>
+      <button class="bell" id="bell" title="알림 설정" onclick="go('#notify')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="dot"></span></button>
       <button class="lnk" id="bug" title="버그·개선 제보" onclick="go('#feedback')">버그제보</button>
       <button class="lnk" onclick="signOut()">로그아웃</button>
     </div>
@@ -266,6 +270,23 @@ const SUPABASE_KEY = 'sb_publishable_fWTsacLqOMhAV9VOeTPy5Q_Elvgx8Fn';   // 공�
 const OWNER_APP_URL = 'https://bm-status-app.vercel.app';
 const JIRA_URL = 'https://gg-arch.atlassian.net/browse/';
 const E = window.StageEngine;
+// ---------- 선 아이콘 (Lucide v1.53.0, ISC 라이선스) ----------
+const IC = {
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  bellOff: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/>',
+  call: '<path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/>',
+  msg: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>',
+  clip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+  file: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  img: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  bug: '<path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/>',
+  phone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  pc: '<path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/>',
+  clock: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/>',
+  table: '<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+  tel: '<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+};
+const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 const $ = s => document.querySelector(s);
@@ -458,7 +479,7 @@ function renderList() {
       <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
       <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
-      <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : '📋 표 만들기'}</button>
+      <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : ic('table') + ' 표 만들기'}</button>
       ${S.me.role === 'manager' ? `<label class="tog"><input type="checkbox" id="fShowDone" ${f.showDone ? 'checked' : ''}> 완료된 현장 보기 <span id="hiddenN" class="sub"></span></label>` : ''}
       <label class="tog"><input type="checkbox" id="fShowArchived" ${f.showArchived ? 'checked' : ''}> 보관 현장 보기 <span id="archivedN" class="sub"></span></label>
     </div>
@@ -514,15 +535,15 @@ function renderRows() {
   const chips = STAGE_DEFS.filter(d => stageCount[d.id] || f.stage === d.id).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id] || 0}</b></button>`).join('');
   const unreadSites = Object.keys(S.unread).filter(k => S.unread[k] > 0).length;
   const callSites = Object.keys(S.calls).length;
-  const callChip = callSites || f.callsOnly ? `<button class="chip call ${f.callsOnly ? 'on' : ''}" data-calls="1">📣 호출<b>${callSites}</b></button>` : '';
-  const unreadChip = unreadSites || f.unreadOnly ? `<button class="chip ${f.unreadOnly ? 'on' : ''}" data-unread="1">💬 새 메시지<b>${unreadSites}</b></button>` : '';
+  const callChip = callSites || f.callsOnly ? `<button class="chip call ${f.callsOnly ? 'on' : ''}" data-calls="1">${ic('call')} 호출<b>${callSites}</b></button>` : '';
+  const unreadChip = unreadSites || f.unreadOnly ? `<button class="chip ${f.unreadOnly ? 'on' : ''}" data-unread="1">${ic('msg')} 새 메시지<b>${unreadSites}</b></button>` : '';
   $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}${callChip}${unreadChip}`;
   $('#count').textContent = `${rows.length}개 현장`;
   const bindChips = () => document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { if (b.dataset.calls) f.callsOnly = !f.callsOnly; else if (b.dataset.unread) f.unreadOnly = !f.unreadOnly; else f.stage = b.dataset.stage; renderRows(); });
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">📣 ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -753,16 +774,16 @@ async function openChat(site) {
   const renderTargets = () => {
     const T = $('#targets'); if (!T) return;
     T.innerHTML = `<span>받는 사람</span><button class="chip ${S.chat.target ? '' : 'on'}" data-t="">전체</button>` +
-      ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : '📣 ' + m.name + ' 호출'}">📣 ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('') +
+      ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : m.name + ' 호출'}">${ic('call')} ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('') +
       // 공무·PM: 현장 담당자가 아닌 계정 역할 전원 호출
-      [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${n ? '' : 'disabled'} title="${n ? `📣 ${r} 전원(${n}명) 호출` : `${r} 계정이 없어요`}">📣 ${r}</button>`; }).join('');
+      [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${n ? '' : 'disabled'} title="${n ? `${r} 전원(${n}명) 호출` : `${r} 계정이 없어요`}">${ic('call')} ${r}</button>`; }).join('');
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
   const attInp = $('#attInp');
   const renderPending = () => {
     const P = S.chat.pending;
-    $('#attPending').innerHTML = P.map((f, i) => `<span class="chip">${isImg(f) ? '🖼' : '📄'} ${esc(f.name)} <span class="sub">${fmtSize(f.size)}</span><button data-rm="${i}" title="제거">×</button></span>`).join('');
+    $('#attPending').innerHTML = P.map((f, i) => `<span class="chip">${ic(isImg(f) ? 'img' : 'file')} ${esc(f.name)} <span class="sub">${fmtSize(f.size)}</span><button data-rm="${i}" title="제거">×</button></span>`).join('');
     $('#attOpt').classList.toggle('hidden', !P.some(isImg));
     document.querySelectorAll('#attPending button[data-rm]').forEach(b => b.onclick = () => { S.chat.pending.splice(+b.dataset.rm, 1); renderPending(); });
   };
@@ -815,7 +836,7 @@ function renderAtt(m) {
     if (f.deleted_at) return `<span class="gone">용량 정리로 삭제됨 · ${esc(f.name)} (${fmtDate(f.created_at || m.created_at)})</span>`;
     const url = S.chat.urls[f.path]; if (!url) return `<span class="gone">${esc(f.name)}</span>`;
     return /^image\//.test(f.mime || '') ? `<a href="${url}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>`
-      : `<a class="file" href="${url}" target="_blank" rel="noopener" download="${esc(f.name)}">📄 <span>${esc(f.name)}</span> <span class="sub">${fmtSize(f.size)}</span></a>`;
+      : `<a class="file" href="${url}" target="_blank" rel="noopener" download="${esc(f.name)}">${ic('file')} <span>${esc(f.name)}</span> <span class="sub">${fmtSize(f.size)}</span></a>`;
   }).join('')}</div>`;
 }
 function renderMsgs(error) {
@@ -828,7 +849,7 @@ function renderMsgs(error) {
     const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
     const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
     const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
-    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role ? `<div><span class="call-tag">📣 ${esc(m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
+    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role ? `<div><span class="call-tag">${ic('call')} ${esc(m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
@@ -849,7 +870,7 @@ function renderDetail(key) {
   if (!rec) { $('#main').innerHTML = `<button class="btn sm back" onclick="go('#sites')">← 목록</button><div class="card empty">현장을 찾을 수 없거나 열람 권한이 없습니다.</div>`; return; }
   const { site, c } = rec; const items = S.itemsBy[key] || [];
   const phones = site.phones || [];
-  const staffTel = name => { const p = S.staff[(name || '').trim()]; return p ? `<a class="btn sm" href="tel:${p}">📞 ${fmtPhone(p)}</a>` : `<span class="sub">번호 없음</span>`; };
+  const staffTel = name => { const p = S.staff[(name || '').trim()]; return p ? `<a class="btn sm" href="tel:${p}">${ic('tel')} ${fmtPhone(p)}</a>` : `<span class="sub">번호 없음</span>`; };
   const procs = [['AD','설계'],['OFB','공무'],['FC','공장생산'],['COS','현장제작'],['IOS','현장설치'],['ASOS','A/S']].map(([p, label]) => {
     const list = items.filter(i => i.PROCESS === p).sort((a, b) => (+a.SEQ || 0) - (+b.SEQ || 0)); if (!list.length) return '';
     const live = list.filter(i => !E.isSkipped(i.STATE)); const done = live.filter(i => E.isDone(i.STATE)).length;
@@ -864,7 +885,7 @@ function renderDetail(key) {
   }).join('') : '<div class="sub">판정 불가</div>';
   const pay = c ? c.payment : null;
   $('#main').innerHTML = `<button class="btn sm back" onclick="history.length > 1 ? history.back() : go('#sites')">← 목록</button>
-  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1">💬 대화${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
+  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1">${ic('msg')} 대화${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
   <div class="grid" id="grid">
     <div>
       <div class="card">
@@ -888,7 +909,7 @@ function renderDetail(key) {
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
         ${site.archived_at ? `<div class="notice" style="margin-top:8px">보관된 현장이라 읽기만 할 수 있어요. 대화 기록은 보관 시작일로부터 5년간 유지됩니다.</div>` : ''}
         <div class="chat-in ${site.archived_at ? 'hidden' : ''}">
-          <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">📎</button>
+          <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">${ic('clip')}</button>
           <input type="file" id="attInp" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.hwp,.hwpx,.zip,.txt,.dwg" class="hidden">
           <textarea id="msgInp" rows="1" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
           <button class="btn primary sm" id="msgSend">보내기</button>
@@ -933,9 +954,9 @@ async function renderFeedback() {
   $('#main').innerHTML = `<div class="nt"><div class="card fbform">
     <h2>버그·개선 제보</h2>
     <p class="sub" style="margin:0">안 되는 것, 이상한 것, 있으면 좋겠는 것을 적어 주세요. 운영자에게 바로 알림이 가고, 답글이 오면 알려드려요.</p>
-    <div class="tools" style="margin-top:12px"><select id="fbKind"><option value="bug">🐞 버그 (안 됨·이상함)</option><option value="improve">💡 개선 요청</option><option value="question">❓ 질문</option></select></div>
+    <div class="tools" style="margin-top:12px"><select id="fbKind"><option value="bug">버그 (안 됨·이상함)</option><option value="improve">개선 요청</option><option value="question">질문</option></select></div>
     <textarea id="fbBody" rows="5" maxlength="4000" placeholder="무엇을 하려고 했고, 어떻게 됐는지 적어 주세요"></textarea>
-    <div class="att-opt" style="margin-top:8px"><button class="btn sm" id="fbAtt">📎 스크린샷 첨부</button><input type="file" id="fbFile" accept="image/*" multiple class="hidden"><span id="fbPending"></span></div>
+    <div class="att-opt" style="margin-top:8px"><button class="btn sm" id="fbAtt">${ic('clip')} 스크린샷 첨부</button><input type="file" id="fbFile" accept="image/*" multiple class="hidden"><span id="fbPending"></span></div>
     <div class="sub" style="margin-top:8px">함께 보내는 정보: 화면 <b>${esc(from)}</b> · ${PLAT[platformOf()]} · ${isStandalone() ? '설치형 앱' : '브라우저'}</div>
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn primary" id="fbSend">보내기</button><span id="fbMsg" class="sub"></span></div>
   </div>
@@ -972,7 +993,7 @@ async function fillShots(rows) {
 }
 
 // ----- 푸시 알림 (웹 푸시 / VAPID) -----
-// 범위: 📣 호출(항상) + 내 담당 현장 새 메시지(개인 설정). 수신자 판정은 서버(RPC push_recipients), 전송은 Edge Function send-push.
+// 범위: 호출(항상) + 내 담당 현장 새 메시지(개인 설정). 수신자 판정은 서버(RPC push_recipients), 전송은 Edge Function send-push.
 // 안드로이드: Chrome·APK(TWA) / 아이폰: Safari → 홈 화면에 추가한 앱에서만 (iOS 16.4+)
 const PUSH_FN = `${SUPABASE_URL}/functions/v1/send-push`;
 const PUSH = { reg: null, sub: null, supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window };
@@ -1042,20 +1063,20 @@ async function renderNotify() {
   else if (perm === 'denied') { text = '이 기기에서 알림이 <b>차단</b>되어 있어요. 브라우저(또는 휴대폰 설정 → 앱 → 알림)에서 이 사이트의 알림을 허용한 뒤 다시 시도해 주세요.'; }
   else if (thisOn) { cls = 'ok'; text = '이 기기에서 알림을 받고 있어요.'; btn = `<button class="btn sm" id="pushOff">이 기기 알림 끄기</button><button class="btn sm" id="pushTest">테스트 알림</button>`; }
   else { text = '이 기기는 아직 알림을 받지 않아요. 버튼을 눌러 켜 주세요.'; btn = `<button class="btn primary sm" id="pushOn">이 기기에서 알림 받기</button>`; }
-  const devRow = d => `<div class="dev"><span class="ic">${d.platform === 'ios' ? '📱' : d.platform === 'android' ? '🤖' : '💻'}</span><span class="t">${esc(uaLabel(d.ua))} · ${d.platform === 'ios' ? '아이폰' : d.platform === 'android' ? '안드로이드' : 'PC'}${d.endpoint === here ? ' <span class="tag">이 기기</span>' : ''}<span class="sub">등록 ${fmtTime(d.created_at)} · 마지막 확인 ${fmtTime(d.last_seen_at)}</span></span><button class="btn sm" data-rm="${d.id}" data-ep="${esc(d.endpoint)}">삭제</button></div>`;
+  const devRow = d => `<div class="dev"><span class="ic">${ic(d.platform === 'ios' || d.platform === 'android' ? 'phone' : 'pc')}</span><span class="t">${esc(uaLabel(d.ua))} · ${d.platform === 'ios' ? '아이폰' : d.platform === 'android' ? '안드로이드' : 'PC'}${d.endpoint === here ? ' <span class="tag">이 기기</span>' : ''}<span class="sub">등록 ${fmtTime(d.created_at)} · 마지막 확인 ${fmtTime(d.last_seen_at)}</span></span><button class="btn sm" data-rm="${d.id}" data-ep="${esc(d.endpoint)}">삭제</button></div>`;
   $('#main').innerHTML = `<div class="nt"><div class="card">
-    <h2>🔔 알림 설정</h2>
-    <p class="sub" style="margin:0">현장 대화에서 <b>📣 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
-    <p class="sub" style="margin:6px 0 0">⏰ <b>근무시간(평일 08:00~17:00)</b>에만 바로 알려요. 그 외 시간과 주말·공휴일에 온 메시지는 다음 근무일 아침 8시 30분에 "몇 건 왔는지" 한 번만 알려드리고, 그 사이 이미 읽은 메시지는 빼요.</p>
+    <h2>${ic('bell')} 알림 설정</h2>
+    <p class="sub" style="margin:0">현장 대화에서 <b>${ic('call')} 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
+    <p class="sub" style="margin:6px 0 0">${ic('clock')} <b>근무시간(평일 08:00~17:00)</b>에만 바로 알려요. 그 외 시간과 주말·공휴일에 온 메시지는 다음 근무일 아침 8시 30분에 "몇 건 왔는지" 한 번만 알려드리고, 그 사이 이미 읽은 메시지는 빼요.</p>
     <div class="st ${cls}"><span class="t">${text}</span>${btn}</div>
     <div class="sec"><h3>무엇을 받을까요</h3>
-      <label class="sw"><input type="checkbox" checked disabled> <span>📣 <b>호출</b> — 항상 받음 <span class="sub">(받는 사람으로 내 역할이 지정된 메시지)</span></span></label>
-      <label class="sw"><input type="checkbox" id="prefMsg" ${messagesOn ? 'checked' : ''}> <span>💬 <b>내 담당 현장의 새 메시지</b> <span class="sub">(영업은 끝까지, 설계는 실시도면 완료 전, 인테리어는 설계 완료 전까지 · 마스터도 담당 현장만)</span></span></label>
+      <label class="sw"><input type="checkbox" checked disabled> <span>${ic('call')} <b>호출</b> — 항상 받음 <span class="sub">(받는 사람으로 내 역할이 지정된 메시지)</span></span></label>
+      <label class="sw"><input type="checkbox" id="prefMsg" ${messagesOn ? 'checked' : ''}> <span>${ic('msg')} <b>내 담당 현장의 새 메시지</b> <span class="sub">(영업은 끝까지, 설계는 실시도면 완료 전, 인테리어는 설계 완료 전까지 · 마스터도 담당 현장만)</span></span></label>
     </div>
     <div class="sec"><h3>알림 받는 기기 <span class="sub" style="font-weight:400">${list.length}대</span></h3>${list.length ? list.map(devRow).join('') : '<div class="sub">등록된 기기가 없어요</div>'}</div>
     <div class="sec"><h3>설치 안내</h3>
-      <details ${isIOS ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">📱 아이폰 (iOS 16.4 이상)</summary><ol class="steps"><li><b>Safari</b>로 이 사이트를 열어요 (Chrome 앱에서는 안 돼요)</li><li>하단 <b>공유</b> 버튼 → <b>홈 화면에 추가</b></li><li>홈 화면의 <b>공간 관리자</b> 앱을 열고 로그인 → 🔔 → <b>이 기기에서 알림 받기</b></li></ol></details>
-      <details ${isAndroid ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">🤖 안드로이드</summary><ol class="steps"><li>전달받은 <b>APK 파일</b>을 열어 설치해요 (처음 한 번 "출처를 알 수 없는 앱 허용"이 필요해요)</li><li>앱을 열고 로그인 → 🔔 → <b>이 기기에서 알림 받기</b></li><li>앱 없이 Chrome에서 바로 켜도 돼요</li></ol></details>
+      <details ${isIOS ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">${ic('phone')} 아이폰 (iOS 16.4 이상)</summary><ol class="steps"><li><b>Safari</b>로 이 사이트를 열어요 (Chrome 앱에서는 안 돼요)</li><li>하단 <b>공유</b> 버튼 → <b>홈 화면에 추가</b></li><li>홈 화면의 <b>공간 관리자</b> 앱을 열고 로그인 → ${ic('bell')} → <b>이 기기에서 알림 받기</b></li></ol></details>
+      <details ${isAndroid ? 'open' : ''}><summary style="cursor:pointer;font-size:14px">${ic('phone')} 안드로이드</summary><ol class="steps"><li>전달받은 <b>APK 파일</b>을 열어 설치해요 (처음 한 번 "출처를 알 수 없는 앱 허용"이 필요해요)</li><li>앱을 열고 로그인 → ${ic('bell')} → <b>이 기기에서 알림 받기</b></li><li>앱 없이 Chrome에서 바로 켜도 돼요</li></ol></details>
     </div>
     <div id="ntMsg" class="sub" style="margin-top:10px"></div>
   </div></div>`;
@@ -1085,7 +1106,7 @@ async function renderUsers() {
   // 제보 목록 (운영자): 상태·답글 저장 시 제보자에게 푸시
   const fbs = fbRes.data || []; S.openFb = fbs.filter(f => f.status === 'open').length;
   const nameOf = id => { const u = S.users.find(x => x.id === id); return u ? (u.staff_name || u.google_name || u.email) : '?'; };
-  const fbHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px" ${S.openFb ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">🐞 제보 <span class="sub" style="font-weight:400">· 접수 ${S.openFb} / 전체 ${fbs.length}</span></summary>
+  const fbHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px" ${S.openFb ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">${ic('bug')} 제보 <span class="sub" style="font-weight:400">· 접수 ${S.openFb} / 전체 ${fbs.length}</span></summary>
     <div style="margin-top:6px">${fbs.length ? fbs.map(f => `<div class="fb" data-fb="${f.id}"><div class="meta"><b>${esc(nameOf(f.user_id))}</b> · ${FB_KIND[f.kind] || f.kind} · ${fmtTime(f.created_at)}${f.page ? ` · <a href="${esc(f.page)}">${esc(f.page)}</a>` : ''} · ${PLAT[f.platform] || f.platform || ''}${f.standalone ? ' 앱' : ''}</div>
       <div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>
       <div class="tools" style="margin:8px 0 0"><select data-f="status">${['open','doing','done'].map(s => `<option value="${s}" ${f.status === s ? 'selected' : ''}>${FB_STATUS[s]}</option>`).join('')}</select><input type="text" data-f="reply" value="${esc(f.reply || '')}" placeholder="답글 (저장하면 제보자에게 알림)" style="flex:1 1 200px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><button class="btn sm" data-save="${f.id}">저장</button><span class="saved"></span></div></div>`).join('') : '<div class="sub">제보가 없어요</div>'}</div></details>`;
@@ -1093,14 +1114,14 @@ async function renderUsers() {
   const pushCell = u => {
     if (!isApprovedRole(u.role)) return '<span class="sub">-</span>';
     const p = pushBy[u.id]; const n = Number(p?.devices || 0);
-    if (!n) return `<span class="tag" style="background:#fbeaea;color:#7a2e2e">🔕 꺼짐</span>`;
-    return `<span class="tag" style="background:#eef5f0;color:#2f5b40">🔔 ${n}대</span> <span class="sub">${(p.platforms || []).map(x => PLAT[x] || x).join('·')} · 확인 ${fmtTime(p.last_seen_at)}</span>${p.messages === false ? '<div class="sub">새 메시지 알림 꺼둠(호출만)</div>' : ''}`;
+    if (!n) return `<span class="tag" style="background:#fbeaea;color:#7a2e2e">${ic('bellOff')} 꺼짐</span>`;
+    return `<span class="tag" style="background:#eef5f0;color:#2f5b40">${ic('bell')} ${n}대</span> <span class="sub">${(p.platforms || []).map(x => PLAT[x] || x).join('·')} · 확인 ${fmtTime(p.last_seen_at)}</span>${p.messages === false ? '<div class="sub">새 메시지 알림 꺼둠(호출만)</div>' : ''}`;
   };
   const usedMB = Number(usageRes.data || 0) / 1048576, limitMB = 900;
   const usageHtml = `<div class="usage">대화 파일 저장소 <b>${usedMB.toFixed(1)}MB</b> / ${limitMB}MB 사용 중 · 한도를 넘으면 가장 오래된 파일부터 자동 삭제됩니다</div>`;
   // 휴일 관리: 이 날짜에는 푸시를 보류하고 다음 근무일 아침 요약으로 묶음 (주말은 자동)
   const hols = holRes.data || [];
-  const holHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px"><summary style="cursor:pointer;font-weight:600">⏰ 휴일 관리 <span class="sub" style="font-weight:400">· 앞으로 ${hols.length}일 등록 · 푸시 알림은 평일 08:00~17:00에만, 등록된 휴일에는 보류</span></summary>
+  const holHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px"><summary style="cursor:pointer;font-weight:600">${ic('clock')} 휴일 관리 <span class="sub" style="font-weight:400">· 앞으로 ${hols.length}일 등록 · 푸시 알림은 평일 08:00~17:00에만, 등록된 휴일에는 보류</span></summary>
     <div class="tools" style="margin:10px 0 6px"><input type="date" id="holDay"><input type="text" id="holName" placeholder="휴일 이름 (예: 창립기념일)" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;flex:1 1 160px"><button class="btn sm" id="holAdd">추가</button></div>
     <div id="holList">${hols.length ? hols.map(h => `<div class="dev"><span class="t">${fmtDate(h.day)} <span class="sub" style="display:inline">${['일','월','화','수','목','금','토'][new Date(h.day + 'T00:00:00').getDay()]}</span> · ${esc(h.name)}</span><button class="btn sm" data-hol="${h.day}">삭제</button></div>`).join('') : '<div class="sub">등록된 휴일이 없어요</div>'}</div>
     <div class="sub" style="margin-top:6px">법정 공휴일은 2027년까지 미리 넣어 두었어요. 회사 자체 휴무(근로자의날·창립기념일 등)는 여기서 추가하세요.</div></details>`;
@@ -1111,7 +1132,7 @@ async function renderUsers() {
   const nameOpts = u => `<option value="">— 없음 —</option>`
     + (u.staff_name && !S.nameOptions.some(o => o.name === u.staff_name) ? `<option value="${esc(u.staff_name)}" selected>${esc(u.staff_name)} (Jira에 없음 — 확인 필요)</option>` : '')
     + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
-  $('#main').innerHTML = `${usageHtml}${fbHtml}${holHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 바꾸면 승인됩니다. <b>담당자</b>는 본인 현장만, <b>공무·PM·관리자</b>는 전체 현장을 봅니다(공무·PM은 대화방에서 📣 호출 대상). 차단하면 즉시 접근이 막힙니다.</div>
+  $('#main').innerHTML = `${usageHtml}${fbHtml}${holHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 바꾸면 승인됩니다. <b>담당자</b>는 본인 현장만, <b>공무·PM·관리자</b>는 전체 현장을 봅니다(공무·PM은 대화방에서 ${ic('call')} 호출 대상). 차단하면 즉시 접근이 막힙니다.</div>
     <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>알림</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
     ${S.users.map(u => `<tr data-id="${u.id}">
       <td><div class="nm">${esc(u.google_name || '-')}</div><div class="sub">${esc(u.email)}</div></td>
