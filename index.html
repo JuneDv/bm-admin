@@ -157,7 +157,7 @@
   .members { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
   .mem { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:#fafbfd; font-size:12px; color:var(--text); }
   .mem .rl { color:var(--mute); } .mem .dot { width:7px; height:7px; border-radius:50%; background:var(--gray); display:inline-block; }
-  .mem.on .dot { background:var(--green); } .mem.off { color:var(--mute); border-style:dashed; } .mem.off .nm { text-decoration:line-through; }
+  .mem.on .dot { background:var(--green); } .mem.off { color:var(--mute); border-style:dashed; }
   .mem .note { color:var(--mute); font-size:11px; }
 
   /* ---- 관리자 관리 ---- */
@@ -567,8 +567,8 @@ function chatMembers(rec) {
   const nm = v => (v || '').trim();
   return [
     { role: '영업',     name: nm(site.manager),  active: true,         leftNote: '' },
-    { role: '설계',     name: nm(site.designer), active: !designOver,  leftNote: '실시도면 완료로 나감' },
-    { role: '인테리어', name: nm(site.interior), active: !interiorOver, leftNote: '설계 업무 완료로 나감' },
+    { role: '설계',     name: nm(site.designer), active: !designOver,  leftNote: '완료' },
+    { role: '인테리어', name: nm(site.interior), active: !interiorOver, leftNote: '완료' },
   ].filter(m => m.name && m.name !== '-');
 }
 function renderMembers(rec, accounts) {
@@ -577,7 +577,7 @@ function renderMembers(rec, accounts) {
   return ms.map(m => {
     const acc = accounts ? accounts[m.name] : undefined;
     const note = !m.active ? m.leftNote : acc === false ? '앱 미가입' : '';
-    return `<span class="mem ${m.active ? 'on' : 'off'}" title="${m.active ? '참여 중' : esc(m.leftNote)}"><span class="dot"></span><span class="rl">${m.role}</span><span class="nm">${esc(m.name)}</span>${note ? `<span class="note">· ${esc(note)}</span>` : ''}</span>`;
+    return `<span class="mem ${m.active ? 'on' : 'off'}" title="${m.active ? '참여 중' : '담당 업무 완료'}"><span class="dot"></span><span class="rl">${m.role}</span><span class="nm">${esc(m.name)}</span>${note ? `<span class="note">· ${esc(note)}</span>` : ''}</span>`;
   }).join('');
 }
 async function refreshMembers(rec) {
