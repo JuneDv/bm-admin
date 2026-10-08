@@ -41,6 +41,7 @@
   .role.master, .role.admin, .role.gongmu, .role.pm { background:#efe4c8; color:#5a4310; }
   .role.owner { background:#dfe9e2; color:#2f5b40; }
   .lnk { border:0; background:transparent; color:var(--mute); text-decoration:underline; padding:0; }
+  #bug { font-size:12px; text-decoration:none; } #bug.on { color:var(--navy-d); font-weight:600; }
 
   .wrap { max-width:1200px; margin:0 auto; padding:16px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; }
@@ -236,8 +237,8 @@
     <div class="me">
       <span id="syncInfo" class="sub"></span>
       <span><b id="meName"></b> <span class="email" id="meEmail"></span></span>
-      <button class="bell" id="bug" title="버그·개선 제보" onclick="go('#feedback')">🐞</button>
       <button class="bell" id="bell" title="알림 설정" onclick="go('#notify')">🔔<span class="dot"></span></button>
+      <button class="lnk" id="bug" title="버그·개선 제보" onclick="go('#feedback')">버그제보</button>
       <button class="lnk" onclick="signOut()">로그아웃</button>
     </div>
   </div>
@@ -901,7 +902,7 @@ async function renderFeedback() {
   const from = S.fbFrom || '#sites'; const list = mine || []; const pend = [];
   const item = f => `<div class="fb"><div class="meta">${FB_KIND[f.kind] || f.kind} · <span class="tag st-${f.status}">${FB_STATUS[f.status] || f.status}</span> · ${fmtTime(f.created_at)}</div><div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>${f.reply ? `<div class="reply">↳ 운영자: ${esc(f.reply)}</div>` : ''}</div>`;
   $('#main').innerHTML = `<div class="nt"><div class="card fbform">
-    <h2>🐞 버그·개선 제보</h2>
+    <h2>버그·개선 제보</h2>
     <p class="sub" style="margin:0">안 되는 것, 이상한 것, 있으면 좋겠는 것을 적어 주세요. 운영자에게 바로 알림이 가고, 답글이 오면 알려드려요.</p>
     <div class="tools" style="margin-top:12px"><select id="fbKind"><option value="bug">🐞 버그 (안 됨·이상함)</option><option value="improve">💡 개선 요청</option><option value="question">❓ 질문</option></select></div>
     <textarea id="fbBody" rows="5" maxlength="4000" placeholder="무엇을 하려고 했고, 어떻게 됐는지 적어 주세요"></textarea>
