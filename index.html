@@ -141,6 +141,18 @@
   .day { text-align:center; font-size:11px; color:var(--mute); margin:6px 0 2px; }
   .chat-in { display:flex; gap:6px; margin-top:8px; align-items:flex-end; }
   .chat-in textarea { flex:1; resize:none; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font:inherit; line-height:1.4; }
+  .chat-in .btn.icon { padding:8px 10px; }
+  .att-pending { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .att-pending .chip { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .att-pending .chip button { border:0; background:transparent; color:var(--mute); margin-left:4px; cursor:pointer; }
+  .att-opt { font-size:12px; color:var(--mute); margin-top:4px; display:flex; gap:10px; align-items:center; }
+  .att { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .msg.mine .att { justify-content:flex-end; }
+  .att img { width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid var(--line); display:block; }
+  .att .file { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:13px; color:var(--text); max-width:260px; }
+  .att .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .att .gone { font-size:12px; color:var(--mute); border:1px dashed var(--line); border-radius:10px; padding:6px 10px; }
+  .usage { font-size:13px; color:var(--mute); margin-bottom:10px; } .usage b { color:var(--text); }
 
   /* ---- 관리자 관리 ---- */
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
@@ -545,29 +557,94 @@ async function refreshUnread() {
   const { data, error } = await sb.rpc('unread_counts');
   if (!error) S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)]));
 }
-function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; }
+function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.urls = {}; S.chat.pending = []; }
+const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
+const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
+const isImg = f => /^image\//.test(f.type || '');
+// 사진 축소: 긴 변 IMG_MAX_EDGE, JPEG. 결과가 원본보다 크거나 원본이 이미 작으면 원본 유지
+async function shrinkImage(file, maxEdge = IMG_MAX_EDGE, quality = IMG_QUALITY) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    if (scale === 1 && file.size < 400 * 1024) return { blob: file, width: bmp.width, height: bmp.height, type: file.type };
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return { blob: file, width: bmp.width, height: bmp.height, type: file.type };
+    return { blob, width: w, height: h, type: 'image/jpeg', renamed: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
+  } catch { return { blob: file, type: file.type }; }
+}
+Object.assign(window.__dbg, { shrinkImage, renderMsgs: e => renderMsgs(e) });
 async function openChat(site) {
-  closeChat(); S.chat.bmKey = site.bm_key;
+  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {};
   const load = async () => {
-    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, body, created_at').eq('bm_key', site.bm_key).order('created_at').limit(300);
+    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).order('created_at').limit(300);
     if (S.chat.bmKey !== site.bm_key) return;
-    S.chat.messages = data || []; renderMsgs(error);
+    S.chat.messages = data || [];
+    const paths = S.chat.messages.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
+    if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = s.signedUrl; }); }
+    if (S.chat.bmKey !== site.bm_key) return;
+    renderMsgs(error);
     if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
     sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
   };
   await load();
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
+  const attInp = $('#attInp');
+  const renderPending = () => {
+    const P = S.chat.pending;
+    $('#attPending').innerHTML = P.map((f, i) => `<span class="chip">${isImg(f) ? '🖼' : '📄'} ${esc(f.name)} <span class="sub">${fmtSize(f.size)}</span><button data-rm="${i}" title="제거">×</button></span>`).join('');
+    $('#attOpt').classList.toggle('hidden', !P.some(isImg));
+    document.querySelectorAll('#attPending button[data-rm]').forEach(b => b.onclick = () => { S.chat.pending.splice(+b.dataset.rm, 1); renderPending(); });
+  };
+  $('#attBtn').onclick = () => attInp.click();
+  attInp.onchange = () => {
+    for (const f of attInp.files) {
+      if (f.size > MAX_FILE && !isImg(f)) { alert(`${f.name}: 파일당 10MB까지 올릴 수 있어요 (${fmtSize(f.size)})`); continue; }
+      if (S.chat.pending.length >= 10) { alert('한 번에 10개까지 첨부할 수 있어요'); break; }
+      S.chat.pending.push(f);
+    }
+    attInp.value = ''; renderPending();
+  };
   const send = async () => {
-    const body = inp.value.trim(); if (!body) return;
-    inp.disabled = true; $('#msgSend').disabled = true;
-    const { error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body });
-    inp.disabled = false; $('#msgSend').disabled = false;
-    if (error) { alert('전송 실패: ' + error.message); return; }
-    inp.value = ''; await load(); inp.focus();
+    const body = inp.value.trim(); const files = [...S.chat.pending];
+    if (!body && !files.length) return;
+    inp.disabled = true; $('#msgSend').disabled = true; $('#attBtn').disabled = true;
+    try {
+      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body }).select('id').single();
+      if (error) throw error;
+      const orig = $('#attOrig')?.checked;
+      const rows = [];
+      for (const f of files) {
+        let blob = f, meta = { type: f.type }, name = f.name;
+        if (isImg(f) && !orig) { meta = await shrinkImage(f); blob = meta.blob; if (meta.renamed) name = meta.renamed; }
+        if (blob.size > MAX_FILE) { alert(`${f.name}: 축소 후에도 10MB를 넘어 건너뜁니다`); continue; }
+        const safe = name.replace(/[^\w.\-가-힣 ]+/g, '_').slice(-80);
+        const path = `${site.bm_key}/${crypto.randomUUID().slice(0, 8)}-${safe}`;
+        const { error: e1 } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: meta.type || blob.type || 'application/octet-stream', upsert: false });
+        if (e1) { alert(`${f.name} 업로드 실패: ${e1.message}`); continue; }
+        rows.push({ message_id: msg.id, bm_key: site.bm_key, path, name, size: blob.size, mime: meta.type || blob.type || null, width: meta.width || null, height: meta.height || null });
+      }
+      if (rows.length) { const { error: e2 } = await sb.from('message_files').insert(rows); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
+      inp.value = ''; S.chat.pending = []; renderPending();
+      await load();
+    } catch (e) { alert('전송 실패: ' + (e.message || e)); }
+    inp.disabled = false; $('#msgSend').disabled = false; $('#attBtn').disabled = false; inp.focus();
   };
   $('#msgSend').onclick = send;
   inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  inp.addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); S.chat.pending.push(...fs.slice(0, 10 - S.chat.pending.length)); renderPending(); } });
+}
+function renderAtt(m) {
+  const fs = m.message_files || []; if (!fs.length) return '';
+  return `<div class="att">${fs.map(f => {
+    if (f.deleted_at) return `<span class="gone">용량 정리로 삭제됨 · ${esc(f.name)} (${fmtDate(f.created_at || m.created_at)})</span>`;
+    const url = S.chat.urls[f.path]; if (!url) return `<span class="gone">${esc(f.name)}</span>`;
+    return /^image\//.test(f.mime || '') ? `<a href="${url}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>`
+      : `<a class="file" href="${url}" target="_blank" rel="noopener" download="${esc(f.name)}">📄 <span>${esc(f.name)}</span> <span class="sub">${fmtSize(f.size)}</span></a>`;
+  }).join('')}</div>`;
 }
 function renderMsgs(error) {
   const el = $('#msgs'); if (!el) return;
@@ -579,11 +656,14 @@ function renderMsgs(error) {
     const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
     const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
     const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
-    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div><div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div></div>`;
+    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('이 메시지를 삭제할까요?')) return;
+    const m = S.chat.messages.find(x => String(x.id) === b.dataset.del);
+    const paths = (m?.message_files || []).filter(f => !f.deleted_at).map(f => f.path);
+    if (paths.length) await sb.storage.from(BUCKET).remove(paths);
     const { error } = await sb.from('site_messages').delete().eq('id', b.dataset.del);
     if (error) { alert('삭제 실패: ' + error.message); return; }
     S.chat.messages = S.chat.messages.filter(m => String(m.id) !== b.dataset.del); renderMsgs();
@@ -632,7 +712,14 @@ function renderDetail(key) {
     <div>
       <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 영업·설계·인테리어 담당자만 볼 수 있어요</span></h3>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
-        <div class="chat-in"><textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea><button class="btn primary sm" id="msgSend">보내기</button></div>
+        <div class="chat-in">
+          <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">📎</button>
+          <input type="file" id="attInp" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.hwp,.hwpx,.zip,.txt,.dwg" class="hidden">
+          <textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+          <button class="btn primary sm" id="msgSend">보내기</button>
+        </div>
+        <div class="att-pending" id="attPending"></div>
+        <div class="att-opt hidden" id="attOpt"><label><input type="checkbox" id="attOrig"> 사진 원본 그대로 올리기 (기본은 긴 변 1600px로 축소)</label></div>
       </div>
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공사비</h3>
         <dl class="kv"><dt>총액</dt><dd>${won(site.cost_total)}</dd><dt>수금액</dt><dd>${won(site.cost_paid)} <span class="sub">(${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) : '-'}%)</span></dd></dl>
@@ -655,11 +742,14 @@ function renderDetail(key) {
 
 // ----- 관리자 관리 (소유자) -----
 async function renderUsers() {
-  const [{ data: users }, nameRes] = await Promise.all([
+  const [{ data: users }, nameRes, usageRes] = await Promise.all([
     sb.from('admin_users').select('*').order('created_at', { ascending:false }),
     S.nameOptions.length ? Promise.resolve({ data: S.nameOptions }) : sb.rpc('staff_name_options'),
+    sb.rpc('storage_usage'),
   ]);
   S.users = users || []; S.nameOptions = nameRes.data || [];
+  const usedMB = Number(usageRes.data || 0) / 1048576, limitMB = 900;
+  const usageHtml = `<div class="usage">대화 파일 저장소 <b>${usedMB.toFixed(1)}MB</b> / ${limitMB}MB 사용 중 · 한도를 넘으면 가장 오래된 파일부터 자동 삭제됩니다</div>`;
   const pending = S.users.filter(u => u.role === 'pending').length;
   $('#pendingBadge').textContent = pending; $('#pendingBadge').classList.toggle('hidden', !pending);
   const roleOpts = u => ['pending','manager','master','blocked'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('');
@@ -667,7 +757,7 @@ async function renderUsers() {
   const nameOpts = u => `<option value="">— 없음 —</option>`
     + (u.staff_name && !S.nameOptions.some(o => o.name === u.staff_name) ? `<option value="${esc(u.staff_name)}" selected>${esc(u.staff_name)} (Jira에 없음 — 확인 필요)</option>` : '')
     + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
-  $('#main').innerHTML = `<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
+  $('#main').innerHTML = `${usageHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
     <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
     ${S.users.map(u => `<tr data-id="${u.id}">
       <td><div class="nm">${esc(u.google_name || '-')}</div><div class="sub">${esc(u.email)}</div></td>
