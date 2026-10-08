@@ -240,6 +240,7 @@ const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], las
   table: { on:false, cols:new Set(['issue_name','owner_name','phones','bm_state','stage','cost_pct','manager']), selected:new Set() } };
 S.filter.dateField = 'contract_date'; S.filter.from = ''; S.filter.to = '';
 S.filter.showDone = false; S.filter.unreadOnly = false;      // 담당자: 완료된 현장 보기 / 새 메시지 있는 현장만
+S.filter.showArchived = false;                                // 보관(준공·종료) 현장 보기 — 기본 숨김, 5년 뒤 자동 삭제
 S.unread = {};                                                // bm_key → 안 읽은 메시지 수
 S.calls = {};                                                 // bm_key → 나를 호출한 안 읽은 메시지 수
 S.filter.callsOnly = false;
@@ -366,6 +367,7 @@ function renderList() {
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
       <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : '📋 표 만들기'}</button>
       ${S.me.role === 'manager' ? `<label class="tog"><input type="checkbox" id="fShowDone" ${f.showDone ? 'checked' : ''}> 완료된 현장 보기 <span id="hiddenN" class="sub"></span></label>` : ''}
+      <label class="tog"><input type="checkbox" id="fShowArchived" ${f.showArchived ? 'checked' : ''}> 보관 현장 보기 <span id="archivedN" class="sub"></span></label>
     </div>
     <div class="tools range">
       <select id="fDateField">${DATE_FIELDS.map(([k, l]) => `<option value="${k}" ${f.dateField === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -383,6 +385,7 @@ function renderList() {
   $('#fSort').onchange = e => { f.sort = e.target.value; renderRows(); };
   $('#tblToggle').onclick = () => { S.table.on = !S.table.on; renderList(); };
   const sd = $('#fShowDone'); if (sd) sd.onchange = () => { f.showDone = sd.checked; renderRows(); };
+  const sa = $('#fShowArchived'); if (sa) sa.onchange = () => { f.showArchived = sa.checked; renderRows(); };
   refreshUnread().then(() => { if (!S.chat.bmKey && document.getElementById('results')) renderRows(); });
   const dateChanged = () => { f.dateField = $('#fDateField').value; f.from = $('#fFrom').value; f.to = $('#fTo').value; $('#fDateClear').disabled = !(f.from || f.to); renderRows(); };
   $('#fDateField').onchange = dateChanged; $('#fFrom').onchange = dateChanged; $('#fTo').onchange = dateChanged;
@@ -399,9 +402,12 @@ function renderRows() {
   const f = S.filter;
   const q = f.q.trim().toLowerCase();
   // base = 단계 칩을 제외한 모든 필터를 통과한 현장 → 칩의 숫자는 이 기준으로 (필터 걸면 숫자도 같이 바뀜)
-  const hiddenN = S.me.role === 'manager' ? S.computed.filter(hiddenForMe).length : 0;
+  const archivedN = S.computed.filter(r => r.site.archived_at).length;
+  const an = $('#archivedN'); if (an) an.textContent = archivedN ? `(${archivedN})` : '';
+  const live = S.computed.filter(r => f.showArchived || !r.site.archived_at);
+  const hiddenN = S.me.role === 'manager' ? live.filter(hiddenForMe).length : 0;
   const hn = $('#hiddenN'); if (hn) hn.textContent = hiddenN ? `(${hiddenN})` : '';
-  const base = S.computed.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key])).filter(({ site, c }) =>
+  const base = live.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key])).filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
     && (!f.state || site.bm_state === f.state)
     && (!f.track || (c && c.track === f.track))
@@ -423,7 +429,7 @@ function renderRows() {
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">📣 ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">📣 ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -758,7 +764,7 @@ function renderDetail(key) {
   <div class="grid">
     <div>
       <div class="card">
-        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
+        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}" target="_blank" rel="noopener">건축주 화면 보기</a>` : ''}</div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
@@ -776,7 +782,8 @@ function renderDetail(key) {
       <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
         <div class="members" id="members">${renderMembers(rec)}</div>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
-        <div class="chat-in">
+        ${site.archived_at ? `<div class="notice" style="margin-top:8px">보관된 현장이라 읽기만 할 수 있어요. 대화 기록은 보관 시작일로부터 5년간 유지됩니다.</div>` : ''}
+        <div class="chat-in ${site.archived_at ? 'hidden' : ''}">
           <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">📎</button>
           <input type="file" id="attInp" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.hwp,.hwpx,.zip,.txt,.dwg" class="hidden">
           <textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
