@@ -132,6 +132,13 @@
 
   /* ---- 대화·배지 ---- */
   .ubadge { display:inline-block; margin-left:6px; padding:0 7px; border-radius:9px; background:var(--amber); color:#5a4310; font-size:12px; font-weight:700; vertical-align:middle; }
+  .ubadge.call { background:var(--red); color:#fff; }
+  .chip.call.on { background:var(--red); border-color:var(--red); }
+  .targets { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; font-size:12px; color:var(--mute); }
+  .targets .chip { padding:2px 9px; font-size:12px; } .targets .chip.on { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .targets .chip:disabled { opacity:.45; cursor:default; }
+  .msg .call-tag { display:inline-block; background:#fbeaea; color:#7a2e2e; border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; margin-bottom:3px; }
+  .msg.mine .call-tag { background:#fbeaea; }
   .tog { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--mute); cursor:pointer; white-space:nowrap; }
   .chat .msgs { max-height:380px; overflow:auto; display:flex; flex-direction:column; gap:8px; padding:4px 2px; }
   .msg { max-width:90%; align-self:flex-start; } .msg.mine { align-self:flex-end; text-align:right; }
@@ -234,6 +241,8 @@ const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], las
 S.filter.dateField = 'contract_date'; S.filter.from = ''; S.filter.to = '';
 S.filter.showDone = false; S.filter.unreadOnly = false;      // 담당자: 완료된 현장 보기 / 새 메시지 있는 현장만
 S.unread = {};                                                // bm_key → 안 읽은 메시지 수
+S.calls = {};                                                 // bm_key → 나를 호출한 안 읽은 메시지 수
+S.filter.callsOnly = false;
 S.chat = { bmKey: null, messages: [], timer: null };
 const DATE_FIELDS = [['contract_date','계약일'],['start_date','착공일'],['ship_date','상차일'],['movein_date','희망입주일']];
 
@@ -392,7 +401,7 @@ function renderRows() {
   // base = 단계 칩을 제외한 모든 필터를 통과한 현장 → 칩의 숫자는 이 기준으로 (필터 걸면 숫자도 같이 바뀜)
   const hiddenN = S.me.role === 'manager' ? S.computed.filter(hiddenForMe).length : 0;
   const hn = $('#hiddenN'); if (hn) hn.textContent = hiddenN ? `(${hiddenN})` : '';
-  const base = S.computed.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key])).filter(({ site, c }) =>
+  const base = S.computed.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key])).filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
     && (!f.state || site.bm_state === f.state)
     && (!f.track || (c && c.track === f.track))
@@ -405,14 +414,16 @@ function renderRows() {
   const stageCount = {}; for (const { c } of base) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
   const chips = STAGE_DEFS.filter(d => stageCount[d.id] || f.stage === d.id).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id] || 0}</b></button>`).join('');
   const unreadSites = Object.keys(S.unread).filter(k => S.unread[k] > 0).length;
+  const callSites = Object.keys(S.calls).length;
+  const callChip = callSites || f.callsOnly ? `<button class="chip call ${f.callsOnly ? 'on' : ''}" data-calls="1">📣 호출<b>${callSites}</b></button>` : '';
   const unreadChip = unreadSites || f.unreadOnly ? `<button class="chip ${f.unreadOnly ? 'on' : ''}" data-unread="1">💬 새 메시지<b>${unreadSites}</b></button>` : '';
-  $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}${unreadChip}`;
+  $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}${callChip}${unreadChip}`;
   $('#count').textContent = `${rows.length}개 현장`;
-  const bindChips = () => document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { if (b.dataset.unread) f.unreadOnly = !f.unreadOnly; else f.stage = b.dataset.stage; renderRows(); });
+  const bindChips = () => document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { if (b.dataset.calls) f.callsOnly = !f.callsOnly; else if (b.dataset.unread) f.unreadOnly = !f.unreadOnly; else f.stage = b.dataset.stage; renderRows(); });
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">📣 ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -590,7 +601,7 @@ async function refreshMembers(rec) {
 async function refreshUnread() {
   if (!S.user) return;
   const { data, error } = await sb.rpc('unread_counts');
-  if (!error) S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)]));
+  if (!error) { S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)])); S.calls = Object.fromEntries((data || []).filter(r => Number(r.calls) > 0).map(r => [r.bm_key, Number(r.calls)])); }
 }
 function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.urls = {}; S.chat.pending = []; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
@@ -614,7 +625,7 @@ Object.assign(window.__dbg, { shrinkImage, renderMsgs: e => renderMsgs(e) });
 async function openChat(site) {
   closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {};
   const load = async () => {
-    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).order('created_at').limit(300);
+    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, target_role, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).order('created_at').limit(300);
     if (S.chat.bmKey !== site.bm_key) return;
     S.chat.messages = data || [];
     const paths = S.chat.messages.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
@@ -622,11 +633,23 @@ async function openChat(site) {
     if (S.chat.bmKey !== site.bm_key) return;
     renderMsgs(error);
     if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
+    if (S.calls[site.bm_key]) delete S.calls[site.bm_key];
     sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
   };
   await load();
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
+  // 받는 사람 선택: 전체(기본) / 영업 / 설계 / 인테리어 — 담당 업무가 끝난(완료) 역할은 고를 수 없음
+  S.chat.target = null;
+  const rec = S.computed.find(x => x.site.bm_key === site.bm_key);
+  const members = rec ? chatMembers(rec) : [];
+  const renderTargets = () => {
+    const T = $('#targets'); if (!T) return;
+    T.innerHTML = `<span>받는 사람</span><button class="chip ${S.chat.target ? '' : 'on'}" data-t="">전체</button>` +
+      ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : '📣 ' + m.name + ' 호출'}">📣 ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('');
+    T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
+  };
+  renderTargets();
   const attInp = $('#attInp');
   const renderPending = () => {
     const P = S.chat.pending;
@@ -663,8 +686,9 @@ async function openChat(site) {
       }
       if (!body && !uploaded.length) throw new Error('올라간 파일이 없어 메시지를 보내지 않았습니다');
       // 2) 메시지 저장
-      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body }).select('id').single();
+      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], target_role: S.chat.target || null, body }).select('id').single();
       if (error) { if (uploaded.length) await sb.storage.from(BUCKET).remove(uploaded.map(u => u.path)); throw error; }
+      S.chat.target = null; renderTargets();
       // 3) 파일 메타 저장
       if (uploaded.length) { const { error: e2 } = await sb.from('message_files').insert(uploaded.map(u => ({ message_id: msg.id, bm_key: site.bm_key, ...u }))); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
       inp.value = ''; S.chat.pending = []; renderPending();
@@ -695,7 +719,7 @@ function renderMsgs(error) {
     const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
     const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
     const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
-    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
+    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role ? `<div><span class="call-tag">📣 ${esc(m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
@@ -758,6 +782,7 @@ function renderDetail(key) {
           <textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
           <button class="btn primary sm" id="msgSend">보내기</button>
         </div>
+        <div class="targets" id="targets"></div>
         <div class="att-pending" id="attPending"></div>
         <div class="att-opt hidden" id="attOpt"><label><input type="checkbox" id="attOrig"> 사진 원본 그대로 올리기 (기본은 긴 변 1600px로 축소)</label></div>
       </div>
