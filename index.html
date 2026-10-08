@@ -613,21 +613,25 @@ async function openChat(site) {
     if (!body && !files.length) return;
     inp.disabled = true; $('#msgSend').disabled = true; $('#attBtn').disabled = true;
     try {
-      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body }).select('id').single();
-      if (error) throw error;
+      // 1) 파일 먼저 업로드 (실패하면 메시지를 만들지 않음) — 저장소 키는 ASCII만 허용되므로 uuid.확장자 로, 원래 이름은 DB에 보관
       const orig = $('#attOrig')?.checked;
-      const rows = [];
+      const uploaded = [];
       for (const f of files) {
         let blob = f, meta = { type: f.type }, name = f.name;
         if (isImg(f) && !orig) { meta = await shrinkImage(f); blob = meta.blob; if (meta.renamed) name = meta.renamed; }
         if (blob.size > MAX_FILE) { alert(`${f.name}: 축소 후에도 10MB를 넘어 건너뜁니다`); continue; }
-        const safe = name.replace(/[^\w.\-가-힣 ]+/g, '_').slice(-80);
-        const path = `${site.bm_key}/${crypto.randomUUID().slice(0, 8)}-${safe}`;
+        const ext = (name.match(/\.([a-zA-Z0-9]{1,6})$/) || [, 'bin'])[1].toLowerCase();
+        const path = `${site.bm_key}/${crypto.randomUUID()}.${ext}`;
         const { error: e1 } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: meta.type || blob.type || 'application/octet-stream', upsert: false });
         if (e1) { alert(`${f.name} 업로드 실패: ${e1.message}`); continue; }
-        rows.push({ message_id: msg.id, bm_key: site.bm_key, path, name, size: blob.size, mime: meta.type || blob.type || null, width: meta.width || null, height: meta.height || null });
+        uploaded.push({ path, name, size: blob.size, mime: meta.type || blob.type || null, width: meta.width || null, height: meta.height || null });
       }
-      if (rows.length) { const { error: e2 } = await sb.from('message_files').insert(rows); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
+      if (!body && !uploaded.length) throw new Error('올라간 파일이 없어 메시지를 보내지 않았습니다');
+      // 2) 메시지 저장
+      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body }).select('id').single();
+      if (error) { if (uploaded.length) await sb.storage.from(BUCKET).remove(uploaded.map(u => u.path)); throw error; }
+      // 3) 파일 메타 저장
+      if (uploaded.length) { const { error: e2 } = await sb.from('message_files').insert(uploaded.map(u => ({ message_id: msg.id, bm_key: site.bm_key, ...u }))); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
       inp.value = ''; S.chat.pending = []; renderPending();
       await load();
     } catch (e) { alert('전송 실패: ' + (e.message || e)); }
