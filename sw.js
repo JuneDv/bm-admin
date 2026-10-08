@@ -23,7 +23,8 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const hash = (e.notification.data && e.notification.data.hash) || '#sites';
-  const target = new URL('./' + hash, self.registration.scope).href;
+  // 현장 알림으로 새로 열 때는 ?chat=1 → 좁은 화면이면 대화 칸으로 바로 이동
+  const target = new URL('./' + (hash.startsWith('#site/') ? '?chat=1' : '') + hash, self.registration.scope).href;
   e.waitUntil((async () => {
     const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const mine = list.find(c => new URL(c.url).origin === self.location.origin);
