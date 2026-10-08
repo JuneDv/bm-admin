@@ -155,6 +155,7 @@
   .targets { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; font-size:12px; color:var(--mute); }
   .targets .chip { padding:2px 9px; font-size:12px; } .targets .chip.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .targets .chip:disabled { opacity:.45; cursor:default; }
+  .targets .chip .soon { margin-left:4px; font-size:10px; font-weight:700; color:#8a5a14; background:#fbefd9; border-radius:6px; padding:0 5px; }
   .msg .call-tag { display:inline-block; background:#fbeaea; color:#7a2e2e; border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; margin-bottom:3px; }
   .msg.mine .call-tag { background:#fbeaea; }
   .tog { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--mute); cursor:pointer; white-space:nowrap; }
@@ -700,6 +701,9 @@ function hiddenForMe(rec) {
 // ----- 현장 대화 (직원 간) -----
 // 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
+// 건축주 호출: 건축주 앱 대화창이 열릴 때까지 '준비 중'으로 비활성. 열 때 true로
+const OWNER_CHAT_OPEN = false;
+
 // 공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
 //  공무: 인테리어 단계부터 잔금 전까지 (자재관리를 공무가 하므로 인테리어 선정부터 참여, 잔금부터는 PM 몫) — 두 트랙 공통
 //  PM  : 잔금 단계부터 (현장 시공 트랙은 '잔금 · 준공' 단계부터)
@@ -804,7 +808,9 @@ async function openChat(site) {
       // 공무·PM: 현장 담당자가 아닌 계정 역할 전원 호출 — 공정 단계가 되어야 열림(CALL_GATE)
       [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; const open = callOpen(rec, r); const nm = (S.roleName || {})[r] || '';
         const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : !n ? `${r} 역할 앱 계정이 없어 호출을 받을 사람이 없어요` : `${nm || r} 호출`;
-        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('');
+        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('') +
+      // 건축주: 건축주 앱 대화창이 준비되면 활성 (지금은 '준비 중' 표시)
+      (OWNER_CHAT_OPEN ? '' : `<button class="chip" disabled title="건축주 대화는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`);
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
