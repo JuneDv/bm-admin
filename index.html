@@ -278,10 +278,33 @@ async function renderPending() {
 // ----- 현장 목록 -----
 const STAGE_DEFS = [...E.FACTORY_STAGES, ...E.SITE_STAGES.filter(d => !E.FACTORY_STAGES.some(f => f.id === d.id))];
 function dots(c) { if (!c) return ''; return `<span class="dots">${c.stages.map(st => `<i class="${st.status === 'done' ? (st.check && st.check.status === 'partial' ? 'p' : 'd') : st.status === 'now' ? 'n' : ''}"></i>`).join('')}</span>`; }
+// 목록 화면: 검색창·필터(도구 막대)는 한 번만 그리고, 입력할 때는 결과 영역만 다시 그림
+// (전체를 다시 그리면 한글 조합이 끊기고 커서가 튐)
 function renderList() {
   const f = S.filter;
   const people = [...new Set(S.sites.flatMap(r => [r.manager, r.designer, r.interior]).map(x => (x || '').trim()).filter(x => x && x !== '-'))].sort();
   const states = [...new Set(S.sites.map(r => r.bm_state).filter(Boolean))];
+  const hint = S.me.role === 'manager' && !S.sites.length ? `<div class="notice" style="margin-bottom:12px">담당 현장이 없습니다. ${S.me.staff_name ? `Jira 담당자 이름 "${esc(S.me.staff_name)}"으로 적힌 현장이 없어요.` : '이름이 아직 연결되지 않았어요.'} 소유자에게 확인을 요청해 주세요.</div>` : '';
+  $('#main').innerHTML = `${hint}
+    <div class="tools">
+      <input type="search" id="q" placeholder="현장명 · 건축주 · BM키 · 주소 검색" value="${esc(f.q)}" autocomplete="off">
+      <select id="fState"><option value="">BM 상태 전체</option>${states.map(x => `<option ${f.state === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
+      <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
+    </div>
+    <div class="chips" id="chips"></div>
+    <p class="count" id="count"></p>
+    <div id="results"></div>`;
+  $('#q').oninput = e => { f.q = e.target.value; renderRows(); };
+  $('#fState').onchange = e => { f.state = e.target.value; renderRows(); };
+  $('#fTrack').onchange = e => { f.track = e.target.value; renderRows(); };
+  $('#fPerson').onchange = e => { f.person = e.target.value; renderRows(); };
+  $('#fSort').onchange = e => { f.sort = e.target.value; renderRows(); };
+  renderRows();
+}
+function renderRows() {
+  const f = S.filter;
   const q = f.q.trim().toLowerCase();
   let rows = S.computed.filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
@@ -293,18 +316,9 @@ function renderList() {
   rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
   const stageCount = {}; for (const { c } of S.computed) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
   const chips = STAGE_DEFS.filter(d => stageCount[d.id]).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id]}</b></button>`).join('');
-  const hint = S.me.role === 'manager' && !S.sites.length ? `<div class="notice" style="margin-bottom:12px">담당 현장이 없습니다. ${S.me.staff_name ? `Jira 담당자 이름 "${esc(S.me.staff_name)}"으로 적힌 현장이 없어요.` : '이름이 아직 연결되지 않았어요.'} 소유자에게 확인을 요청해 주세요.</div>` : '';
-  $('#main').innerHTML = `${hint}
-    <div class="tools">
-      <input type="search" id="q" placeholder="현장명 · 건축주 · BM키 · 주소 검색" value="${esc(f.q)}">
-      <select id="fState"><option value="">BM 상태 전체</option>${states.map(x => `<option ${f.state === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-      <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
-      <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-      <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
-    </div>
-    <div class="chips"><button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${S.computed.length}</b></button>${chips}</div>
-    <p class="count">${rows.length}개 현장</p>
-    ${rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
+  $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${S.computed.length}</b></button>${chips}`;
+  $('#count').textContent = `${rows.length}개 현장`;
+  $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
         <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
@@ -312,15 +326,9 @@ function renderList() {
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
         <td class="hide-m">${fmtDate(site.ship_date)}</td>
         <td class="hide-m sub">영업 ${esc(site.manager || '-')} · 설계 ${esc(site.designer || '-')} · 인테리어 ${esc(site.interior || '-')}</td>
-      </tr>`).join('')}</tbody></table>` : `<div class="card empty">조건에 맞는 현장이 없습니다.</div>`}`;
-  $('#q').oninput = e => { f.q = e.target.value; renderList(); };
-  $('#fState').onchange = e => { f.state = e.target.value; renderList(); };
-  $('#fTrack').onchange = e => { f.track = e.target.value; renderList(); };
-  $('#fPerson').onchange = e => { f.person = e.target.value; renderList(); };
-  $('#fSort').onchange = e => { f.sort = e.target.value; renderList(); };
-  document.querySelectorAll('.chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderList(); });
+      </tr>`).join('')}</tbody></table>` : `<div class="card empty">조건에 맞는 현장이 없습니다.</div>`;
+  document.querySelectorAll('.chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); });
   document.querySelectorAll('tr[data-key]').forEach(tr => tr.onclick = () => go('#site/' + encodeURIComponent(tr.dataset.key)));
-  if (q) $('#q').focus();
 }
 
 // ----- 현장 상세 -----
