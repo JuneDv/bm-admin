@@ -103,6 +103,29 @@
   .ct { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; } .ct:last-child { border-bottom:0; }
   .ct .lb { color:var(--mute); width:64px; } .ct a { margin-left:auto; }
 
+  /* ---- 표 만들기 ---- */
+  .tbl-wrap { display:grid; grid-template-columns:1fr 250px; gap:12px; align-items:start; }
+  .tbl-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px; font-size:13px; color:var(--mute); }
+  .tbl-bar .sp { flex:1; }
+  .tbl-scroll { overflow:auto; max-height:calc(100vh - 290px); border:1px solid var(--line); border-radius:var(--radius); background:var(--card); }
+  .tbl-scroll table { border:0; border-radius:0; min-width:100%; }
+  .tbl-scroll th { position:sticky; top:0; z-index:1; }
+  .tbl-scroll td, .tbl-scroll th { white-space:nowrap; }
+  .tbl-scroll tbody tr.sel { background:#fffaf0; }
+  .tbl-side { position:sticky; top:64px; }
+  .tbl-side .card { padding:12px; }
+  .cg { margin-top:10px; } .cg-t { font-size:12px; font-weight:700; color:var(--mute); margin-bottom:4px; letter-spacing:.02em; }
+  .cg label { display:block; font-size:13px; padding:2px 0; cursor:pointer; } .cg input { margin-right:6px; }
+  .presets { display:flex; flex-wrap:wrap; gap:4px; } .presets .chip { padding:3px 9px; }
+  .presets .chip.custom { border-style:dashed; }
+  @media (max-width: 820px) {
+    .tbl-wrap { grid-template-columns:1fr; } .tbl-side { position:static; }
+    .tbl-scroll { max-height:60vh; }
+    .tbl-scroll table.list thead { display:table-header-group; }
+    .tbl-scroll table.list, .tbl-scroll table.list tbody, .tbl-scroll table.list tr, .tbl-scroll table.list td { display:revert; }
+    .tbl-scroll table.list td { padding:8px 10px; border-bottom:1px solid var(--line); }
+  }
+
   /* ---- 관리자 관리 ---- */
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
   .saved { color:var(--green); font-size:12px; margin-left:6px; }
@@ -173,7 +196,8 @@ const toRow = r => ({
 const toStage = i => ({ 'BM KEY': i.bm_key, 'PROCESS': i.process, 'STAGE KEY': i.stage_key, 'STAGE NAME': s(i.name), 'STATE': s(i.state), 'SEQ': s(i.seq) });
 
 // ---------- 상태 ----------
-const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], lastSync:null, users:[], nameOptions:[], filter:{ q:'', stage:'', state:'', track:'', person:'', sort:'ship' } };
+const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], lastSync:null, users:[], nameOptions:[], filter:{ q:'', stage:'', state:'', track:'', person:'', sort:'ship' },
+  table: { on:false, cols:new Set(['issue_name','owner_name','phones','bm_state','stage','cost_pct','manager']), selected:new Set() } };
 
 // ---------- 라우팅 ----------
 window.go = h => { location.hash = h; };
@@ -292,6 +316,7 @@ function renderList() {
       <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
       <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
+      <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : '📋 표 만들기'}</button>
     </div>
     <div class="chips" id="chips"></div>
     <p class="count" id="count"></p>
@@ -301,6 +326,7 @@ function renderList() {
   $('#fTrack').onchange = e => { f.track = e.target.value; renderRows(); };
   $('#fPerson').onchange = e => { f.person = e.target.value; renderRows(); };
   $('#fSort').onchange = e => { f.sort = e.target.value; renderRows(); };
+  $('#tblToggle').onclick = () => { S.table.on = !S.table.on; renderList(); };
   renderRows();
 }
 function renderRows() {
@@ -318,6 +344,7 @@ function renderRows() {
   const chips = STAGE_DEFS.filter(d => stageCount[d.id]).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id]}</b></button>`).join('');
   $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${S.computed.length}</b></button>${chips}`;
   $('#count').textContent = `${rows.length}개 현장`;
+  if (S.table.on) { renderTable(rows); document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); }); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
         <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
@@ -327,9 +354,119 @@ function renderRows() {
         <td class="hide-m">${fmtDate(site.ship_date)}</td>
         <td class="hide-m sub">영업 ${esc(site.manager || '-')} · 설계 ${esc(site.designer || '-')} · 인테리어 ${esc(site.interior || '-')}</td>
       </tr>`).join('')}</tbody></table>` : `<div class="card empty">조건에 맞는 현장이 없습니다.</div>`;
-  document.querySelectorAll('.chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); });
+  document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); });
   document.querySelectorAll('tr[data-key]').forEach(tr => tr.onclick = () => go('#site/' + encodeURIComponent(tr.dataset.key)));
 }
+
+// ----- 표 만들기 -----
+// 컬럼 정의: get = 화면·복사용 문자열, raw = CSV·엑셀용 원값(숫자). Jira 필드가 늘면 여기만 추가하면 됨.
+const payLabel = st => st === 'done' ? '완료' : st === 'partial' ? '일부' : '대기';
+const payItem = (rec, i) => rec.c ? rec.c.payment.items[i] : null;
+const COLS = [
+  { id:'issue_name',   group:'현장',   label:'현장명',       get: r => r.site.issue_name || '' },
+  { id:'bm_key',       group:'현장',   label:'BM키',         get: r => r.site.bm_key },
+  { id:'site_address', group:'현장',   label:'주소',         get: r => r.site.site_address || '' },
+  { id:'track',        group:'현장',   label:'제작처',       get: r => r.c ? (r.c.track === 'site' ? '현장' : '공장') : (r.site.factory_type || '') },
+  { id:'bm_state',     group:'현장',   label:'BM 상태',      get: r => r.site.bm_state || '' },
+  { id:'stage',        group:'현장',   label:'현재 단계',    get: r => r.c ? `${r.c.current + 1}/${r.c.stages.length} ${r.c.stages[r.c.current].title}` : '' },
+  { id:'owner_name',   group:'건축주', label:'건축주',       get: r => r.site.owner_name || '' },
+  { id:'phones',       group:'건축주', label:'전화번호',     get: r => (r.site.phones || []).map(fmtPhone).join(', ') },
+  { id:'contract_date',group:'일정',   label:'계약일',       get: r => r.site.contract_date || '' },
+  { id:'start_date',   group:'일정',   label:'착공일',       get: r => r.site.start_date || '' },
+  { id:'ship_date',    group:'일정',   label:'상차일',       get: r => r.site.ship_date || '' },
+  { id:'movein_date',  group:'일정',   label:'희망입주일',   get: r => r.site.movein_date || '' },
+  { id:'cost_total',   group:'공사비', label:'공사비 총액',  get: r => won(r.site.cost_total), raw: r => r.site.cost_total ?? '' },
+  { id:'cost_paid',    group:'공사비', label:'수금액',       get: r => won(r.site.cost_paid), raw: r => r.site.cost_paid ?? '' },
+  { id:'cost_pct',     group:'공사비', label:'수금율(%)',    get: r => r.site.cost_pct != null ? Number(r.site.cost_pct).toFixed(1) : '', raw: r => r.site.cost_pct ?? '' },
+  { id:'pay_deposit',  group:'공사비', label:'계약금 상태',  get: r => payItem(r,0) ? payLabel(payItem(r,0).status) : '' },
+  { id:'pay_interim',  group:'공사비', label:'중도금 상태',  get: r => payItem(r,1) ? payLabel(payItem(r,1).status) : '' },
+  { id:'pay_final',    group:'공사비', label:'잔금 상태',    get: r => payItem(r,2) ? payLabel(payItem(r,2).status) : '' },
+  { id:'next_pay',     group:'공사비', label:'다음 납부',    get: r => r.c ? (r.c.payment.current ? `${r.c.payment.current.label} ${won(r.c.payment.current.planned)}` : '완납') : '' },
+  { id:'next_pay_amt', group:'공사비', label:'다음 납부 금액', get: r => r.c && r.c.payment.current ? won(r.c.payment.current.planned) : '', raw: r => r.c && r.c.payment.current ? r.c.payment.current.planned : '' },
+  { id:'design_total', group:'설계비', label:'설계비 총액',  get: r => won(r.site.design_total), raw: r => r.site.design_total ?? '' },
+  { id:'design_paid',  group:'설계비', label:'설계비 수금액', get: r => won(r.site.design_paid), raw: r => r.site.design_paid ?? '' },
+  { id:'design_pct',   group:'설계비', label:'설계비 수금율(%)', get: r => r.site.design_pct != null ? Number(r.site.design_pct).toFixed(0) : '', raw: r => r.site.design_pct ?? '' },
+  { id:'manager',      group:'담당',   label:'영업',         get: r => r.site.manager || '' },
+  { id:'manager_phone',group:'담당',   label:'영업 번호',    get: r => fmtPhone(S.staff[(r.site.manager || '').trim()] || '') },
+  { id:'designer',     group:'담당',   label:'설계',         get: r => r.site.designer || '' },
+  { id:'designer_phone',group:'담당',  label:'설계 번호',    get: r => fmtPhone(S.staff[(r.site.designer || '').trim()] || '') },
+  { id:'interior',     group:'담당',   label:'인테리어',     get: r => r.site.interior || '' },
+  { id:'interior_phone',group:'담당',  label:'인테리어 번호', get: r => fmtPhone(S.staff[(r.site.interior || '').trim()] || '') },
+  { id:'ad_state',     group:'공종',   label:'AD 설계',      get: r => r.site.ad_state || '' },
+  { id:'ofb_state',    group:'공종',   label:'OFB 공무',     get: r => r.site.ofb_state || '' },
+  { id:'fc_state',     group:'공종',   label:'FC 공장생산',  get: r => r.site.fc_state || '' },
+  { id:'cos_state',    group:'공종',   label:'COS 현장제작', get: r => r.site.cos_state || '' },
+  { id:'ios_state',    group:'공종',   label:'IOS 현장설치', get: r => r.site.ios_state || '' },
+];
+const BUILTIN_PRESETS = [
+  { name:'중도금 안내', cols:['issue_name','owner_name','phones','cost_pct','pay_interim','next_pay_amt','manager'] },
+  { name:'잔금 안내',   cols:['issue_name','owner_name','phones','cost_pct','pay_final','next_pay_amt','ship_date','manager'] },
+  { name:'상차 일정',   cols:['issue_name','site_address','owner_name','phones','ship_date','ios_state','manager'] },
+  { name:'담당자 연락망', cols:['issue_name','bm_state','manager','manager_phone','designer','designer_phone','interior','interior_phone'] },
+];
+const PRESET_KEY = 'bmadmin.presets';
+const loadPresets = () => { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]'); } catch { return []; } };
+const savePresets = p => { try { localStorage.setItem(PRESET_KEY, JSON.stringify(p)); } catch {} };
+
+function tableRows(rows) { const sel = S.table.selected; const picked = rows.filter(r => sel.has(r.site.bm_key)); return picked.length ? picked : rows; }
+function buildTSV(rows, cols, forFile) {
+  const cell = v => { v = String(v ?? ''); return forFile ? (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v) : v.replace(/[\t\n]/g, ' '); };
+  const sep = forFile ? ',' : '\t';
+  return [cols.map(c => cell(c.label)).join(sep), ...rows.map(r => cols.map(c => cell(forFile && c.raw ? c.raw(r) : c.get(r))).join(sep))].join('\n');
+}
+function ownerPhones(rows) { return [...new Set(rows.flatMap(r => r.site.phones || []))]; }
+async function copyText(text, btn, okLabel) {
+  try { await navigator.clipboard.writeText(text); } catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  if (btn) { const o = btn.textContent; btn.textContent = okLabel || '복사됨 ✓'; setTimeout(() => btn.textContent = o, 1500); }
+}
+function downloadCSV(text, name) {
+  const blob = new Blob(['﻿' + text], { type:'text/csv;charset=utf-8' }); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function renderTable(rows) {
+  const T = S.table;
+  for (const k of [...T.selected]) if (!rows.some(r => r.site.bm_key === k)) T.selected.delete(k);   // 필터 밖으로 나간 선택 해제
+  const cols = COLS.filter(c => T.cols.has(c.id));
+  const groups = [...new Set(COLS.map(c => c.group))];
+  const custom = loadPresets();
+  const target = tableRows(rows); const nSel = T.selected.size;
+  const phones = ownerPhones(target);
+  $('#results').innerHTML = `<div class="tbl-wrap">
+    <div class="tbl-main">
+      <div class="tbl-bar">
+        <span>${nSel ? `선택 <b>${nSel}</b>개` : `전체 <b>${rows.length}</b>개`} 대상 · 건축주 번호 ${phones.length}개 · 컬럼 ${cols.length}개</span><span class="sp"></span>
+        <button class="btn sm" id="actCopy">표 복사</button>
+        <button class="btn sm" id="actCsv">CSV 내려받기</button>
+        <button class="btn sm" id="actPhones">전화번호 복사</button>
+        <a class="btn sm" id="actSms" href="sms:${phones.join(',')}">문자 보내기</a>
+      </div>
+      <div class="tbl-scroll">${rows.length ? `<table class="list"><thead><tr><th><input type="checkbox" id="selAll" ${nSel && nSel === rows.length ? 'checked' : ''}></th>${cols.map(c => `<th>${esc(c.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr data-key="${esc(r.site.bm_key)}" class="${T.selected.has(r.site.bm_key) ? 'sel' : ''}"><td><input type="checkbox" data-sel ${T.selected.has(r.site.bm_key) ? 'checked' : ''}></td>${cols.map(c => `<td>${esc(c.get(r))}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<div class="empty">조건에 맞는 현장이 없습니다.</div>'}</div>
+    </div>
+    <aside class="tbl-side"><div class="card">
+      <div class="cg-t">프리셋</div>
+      <div class="presets">${BUILTIN_PRESETS.map((p, i) => `<button class="chip" data-preset="b${i}">${esc(p.name)}</button>`).join('')}${custom.map((p, i) => `<button class="chip custom" data-preset="c${i}" title="길게 누르거나 우클릭하면 삭제">${esc(p.name)}</button>`).join('')}<button class="chip" id="presetSave">＋ 현재 조합 저장</button></div>
+      ${groups.map(g => `<div class="cg"><div class="cg-t">${esc(g)}</div>${COLS.filter(c => c.group === g).map(c => `<label><input type="checkbox" data-col="${c.id}" ${T.cols.has(c.id) ? 'checked' : ''}>${esc(c.label)}</label>`).join('')}</div>`).join('')}
+    </div></aside>
+  </div>`;
+  const rerender = () => renderTable(rows);
+  document.querySelectorAll('input[data-col]').forEach(cb => cb.onchange = () => { cb.checked ? T.cols.add(cb.dataset.col) : T.cols.delete(cb.dataset.col); rerender(); });
+  document.querySelectorAll('input[data-sel]').forEach(cb => cb.onchange = () => { const k = cb.closest('tr').dataset.key; cb.checked ? T.selected.add(k) : T.selected.delete(k); rerender(); });
+  document.querySelectorAll('.tbl-scroll tr[data-key] td:not(:first-child)').forEach(td => td.onclick = () => { const k = td.parentElement.dataset.key; T.selected.has(k) ? T.selected.delete(k) : T.selected.add(k); rerender(); });
+  const selAll = $('#selAll'); if (selAll) selAll.onchange = () => { T.selected = selAll.checked ? new Set(rows.map(r => r.site.bm_key)) : new Set(); rerender(); };
+  document.querySelectorAll('button[data-preset]').forEach(b => {
+    const p = b.dataset.preset[0] === 'b' ? BUILTIN_PRESETS[+b.dataset.preset.slice(1)] : custom[+b.dataset.preset.slice(1)];
+    b.onclick = () => { T.cols = new Set(p.cols); rerender(); };
+    if (b.classList.contains('custom')) b.oncontextmenu = e => { e.preventDefault(); if (confirm(`프리셋 "${p.name}"을 삭제할까요?`)) { savePresets(custom.filter(x => x !== p)); rerender(); } };
+  });
+  $('#presetSave').onclick = () => { const name = prompt('프리셋 이름'); if (!name) return; savePresets([...custom.filter(p => p.name !== name.trim()), { name: name.trim(), cols: [...T.cols] }]); rerender(); };
+  $('#actCopy').onclick = e => copyText(buildTSV(target, cols, false), e.target);
+  $('#actCsv').onclick = () => downloadCSV(buildTSV(target, cols, true), `현장표_${new Date().toISOString().slice(0,10)}.csv`);
+  $('#actPhones').onclick = e => copyText(phones.map(fmtPhone).join(', '), e.target, `${phones.length}개 복사됨 ✓`);
+  if (!phones.length) $('#actSms').removeAttribute('href');
+}
+Object.assign(window.__dbg, { buildTSV, COLS, tableRows });
 
 // ----- 현장 상세 -----
 const stateCls = st => E.isSkipped(st) ? 'skip' : E.isDone(st) ? 'ok' : E.isActive(st) ? 'now' : '';
