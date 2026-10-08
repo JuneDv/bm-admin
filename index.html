@@ -741,7 +741,8 @@ async function openChat(site) {
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
   const INP_MAX = 118;   // CSS max-height와 같게 (5줄)
-  if (matchMedia('(pointer: coarse)').matches) inp.placeholder = '메시지 입력';   // 휴대폰: 한 줄 칸에 긴 안내문이 잘리고, Shift 키도 없음
+  const touch = matchMedia('(pointer: coarse)').matches;   // 휴대폰: Enter = 줄바꿈, 전송은 보내기 버튼 (Shift 키가 없어서)
+  if (touch) inp.placeholder = '메시지 입력';               // 한 줄 칸에 긴 안내문이 잘림
   const growInput = () => { if (!inp.value) { inp.style.height = inp.style.overflowY = ''; return; }   // 빈칸이면 한 줄로 (긴 안내문이 높이를 키우지 않게)
     inp.style.height = 'auto'; const full = inp.scrollHeight + 2; inp.style.height = Math.min(full, INP_MAX) + 'px'; inp.style.overflowY = full > INP_MAX ? 'auto' : 'hidden'; };
   inp.addEventListener('input', growInput);
@@ -805,7 +806,7 @@ async function openChat(site) {
     inp.disabled = false; $('#msgSend').disabled = false; $('#attBtn').disabled = false; inp.focus();
   };
   $('#msgSend').onclick = send;
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  inp.addEventListener('keydown', e => { if (!touch && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   inp.addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); S.chat.pending.push(...fs.slice(0, 10 - S.chat.pending.length)); renderPending(); } });
 }
 function renderAtt(m) {
