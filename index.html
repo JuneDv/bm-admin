@@ -916,6 +916,7 @@ async function renderNotify() {
   $('#main').innerHTML = `<div class="nt"><div class="card">
     <h2>🔔 알림 설정</h2>
     <p class="sub" style="margin:0">현장 대화에서 <b>📣 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
+    <p class="sub" style="margin:6px 0 0">⏰ <b>근무시간(평일 08:00~17:00)</b>에만 바로 알려요. 그 외 시간과 주말·공휴일에 온 메시지는 다음 근무일 아침 8시 30분에 "몇 건 왔는지" 한 번만 알려드리고, 그 사이 이미 읽은 메시지는 빼요.</p>
     <div class="st ${cls}"><span class="t">${text}</span>${btn}</div>
     <div class="sec"><h3>무엇을 받을까요</h3>
       <label class="sw"><input type="checkbox" checked disabled> <span>📣 <b>호출</b> — 항상 받음 <span class="sub">(받는 사람으로 내 역할이 지정된 메시지)</span></span></label>
@@ -942,14 +943,21 @@ async function renderNotify() {
 
 // ----- 관리자 관리 (소유자) -----
 async function renderUsers() {
-  const [{ data: users }, nameRes, usageRes] = await Promise.all([
+  const [{ data: users }, nameRes, usageRes, holRes] = await Promise.all([
     sb.from('admin_users').select('*').order('created_at', { ascending:false }),
     S.nameOptions.length ? Promise.resolve({ data: S.nameOptions }) : sb.rpc('staff_name_options'),
     sb.rpc('storage_usage'),
+    sb.from('holidays').select('day, name').gte('day', new Date().toISOString().slice(0, 10)).order('day'),
   ]);
   S.users = users || []; S.nameOptions = nameRes.data || [];
   const usedMB = Number(usageRes.data || 0) / 1048576, limitMB = 900;
   const usageHtml = `<div class="usage">대화 파일 저장소 <b>${usedMB.toFixed(1)}MB</b> / ${limitMB}MB 사용 중 · 한도를 넘으면 가장 오래된 파일부터 자동 삭제됩니다</div>`;
+  // 휴일 관리: 이 날짜에는 푸시를 보류하고 다음 근무일 아침 요약으로 묶음 (주말은 자동)
+  const hols = holRes.data || [];
+  const holHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px"><summary style="cursor:pointer;font-weight:600">⏰ 휴일 관리 <span class="sub" style="font-weight:400">· 앞으로 ${hols.length}일 등록 · 푸시 알림은 평일 08:00~17:00에만, 등록된 휴일에는 보류</span></summary>
+    <div class="tools" style="margin:10px 0 6px"><input type="date" id="holDay"><input type="text" id="holName" placeholder="휴일 이름 (예: 창립기념일)" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;flex:1 1 160px"><button class="btn sm" id="holAdd">추가</button></div>
+    <div id="holList">${hols.length ? hols.map(h => `<div class="dev"><span class="t">${fmtDate(h.day)} <span class="sub" style="display:inline">${['일','월','화','수','목','금','토'][new Date(h.day + 'T00:00:00').getDay()]}</span> · ${esc(h.name)}</span><button class="btn sm" data-hol="${h.day}">삭제</button></div>`).join('') : '<div class="sub">등록된 휴일이 없어요</div>'}</div>
+    <div class="sub" style="margin-top:6px">법정 공휴일은 2027년까지 미리 넣어 두었어요. 회사 자체 휴무(근로자의날·창립기념일 등)는 여기서 추가하세요.</div></details>`;
   const pending = S.users.filter(u => u.role === 'pending').length;
   $('#pendingBadge').textContent = pending; $('#pendingBadge').classList.toggle('hidden', !pending);
   const roleOpts = u => ['pending','manager','master','blocked'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('');
@@ -957,7 +965,7 @@ async function renderUsers() {
   const nameOpts = u => `<option value="">— 없음 —</option>`
     + (u.staff_name && !S.nameOptions.some(o => o.name === u.staff_name) ? `<option value="${esc(u.staff_name)}" selected>${esc(u.staff_name)} (Jira에 없음 — 확인 필요)</option>` : '')
     + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
-  $('#main').innerHTML = `${usageHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
+  $('#main').innerHTML = `${usageHtml}${holHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
     <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
     ${S.users.map(u => `<tr data-id="${u.id}">
       <td><div class="nm">${esc(u.google_name || '-')}</div><div class="sub">${esc(u.email)}</div></td>
@@ -973,6 +981,19 @@ async function renderUsers() {
     const { error } = await sb.from('admin_users').update(patch).eq('id', id);
     const mark = tr.querySelector('.saved'); if (mark) { mark.textContent = error ? '저장 실패' : '저장됨'; mark.style.color = error ? 'var(--red)' : 'var(--green)'; setTimeout(() => mark.textContent = '', 2000); }
     if (!error) { Object.assign(u, patch); const p = S.users.filter(x => x.role === 'pending').length; $('#pendingBadge').textContent = p; $('#pendingBadge').classList.toggle('hidden', !p); }
+  });
+  $('#holAdd').onclick = async () => {
+    const day = $('#holDay').value, name = $('#holName').value.trim();
+    if (!day || !name) { alert('날짜와 이름을 입력해 주세요'); return; }
+    const { error } = await sb.from('holidays').upsert({ day, name });
+    if (error) { alert('저장 실패: ' + error.message); return; }
+    renderUsers().then(() => { const d = document.querySelector('details.card'); if (d) d.open = true; });
+  };
+  document.querySelectorAll('button[data-hol]').forEach(b => b.onclick = async () => {
+    if (!confirm(`${fmtDate(b.dataset.hol)} 휴일을 삭제할까요?`)) return;
+    const { error } = await sb.from('holidays').delete().eq('day', b.dataset.hol);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
+    renderUsers().then(() => { const d = document.querySelector('details.card'); if (d) d.open = true; });
   });
 }
 
