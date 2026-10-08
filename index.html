@@ -51,6 +51,8 @@
   .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
   .tools input[type=search] { flex:1 1 220px; min-width:180px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
   .tools select { padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  .tools.range { margin-top:-4px; }
+  .tools.range input[type=date] { padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
   .chip { border:1px solid var(--line); background:var(--card); border-radius:999px; padding:4px 10px; font-size:13px; color:var(--mute); }
   .chip b { color:var(--text); margin-left:4px; }
@@ -198,6 +200,8 @@ const toStage = i => ({ 'BM KEY': i.bm_key, 'PROCESS': i.process, 'STAGE KEY': i
 // ---------- 상태 ----------
 const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], lastSync:null, users:[], nameOptions:[], filter:{ q:'', stage:'', state:'', track:'', person:'', sort:'ship' },
   table: { on:false, cols:new Set(['issue_name','owner_name','phones','bm_state','stage','cost_pct','manager']), selected:new Set() } };
+S.filter.dateField = 'contract_date'; S.filter.from = ''; S.filter.to = '';
+const DATE_FIELDS = [['contract_date','계약일'],['start_date','착공일'],['ship_date','상차일'],['movein_date','희망입주일']];
 
 // ---------- 라우팅 ----------
 window.go = h => { location.hash = h; };
@@ -318,6 +322,12 @@ function renderList() {
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
       <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : '📋 표 만들기'}</button>
     </div>
+    <div class="tools range">
+      <select id="fDateField">${DATE_FIELDS.map(([k, l]) => `<option value="${k}" ${f.dateField === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <input type="date" id="fFrom" value="${esc(f.from)}"> <span class="sub">~</span> <input type="date" id="fTo" value="${esc(f.to)}">
+      <button class="btn sm" id="fDateClear" ${f.from || f.to ? '' : 'disabled'}>기간 지우기</button>
+      <span class="sub" id="dateHint"></span>
+    </div>
     <div class="chips" id="chips"></div>
     <p class="count" id="count"></p>
     <div id="results"></div>`;
@@ -327,7 +337,16 @@ function renderList() {
   $('#fPerson').onchange = e => { f.person = e.target.value; renderRows(); };
   $('#fSort').onchange = e => { f.sort = e.target.value; renderRows(); };
   $('#tblToggle').onclick = () => { S.table.on = !S.table.on; renderList(); };
+  const dateChanged = () => { f.dateField = $('#fDateField').value; f.from = $('#fFrom').value; f.to = $('#fTo').value; $('#fDateClear').disabled = !(f.from || f.to); renderRows(); };
+  $('#fDateField').onchange = dateChanged; $('#fFrom').onchange = dateChanged; $('#fTo').onchange = dateChanged;
+  $('#fDateClear').onclick = () => { $('#fFrom').value = ''; $('#fTo').value = ''; dateChanged(); };
   renderRows();
+}
+// 날짜 필터: 시작·끝 중 하나라도 있으면 해당 필드 값이 범위 안이어야 함 (값 없는 현장은 제외)
+function inDateRange(site) {
+  const f = S.filter; if (!f.from && !f.to) return true;
+  const v = String(site[f.dateField] || '').slice(0, 10); if (!v) return false;
+  return (!f.from || v >= f.from) && (!f.to || v <= f.to);
 }
 function renderRows() {
   const f = S.filter;
@@ -337,7 +356,9 @@ function renderRows() {
     && (!f.stage || (c && c.currentId === f.stage))
     && (!f.state || site.bm_state === f.state)
     && (!f.track || (c && c.track === f.track))
-    && (!f.person || [site.manager, site.designer, site.interior].map(x => (x || '').trim()).includes(f.person)));
+    && (!f.person || [site.manager, site.designer, site.interior].map(x => (x || '').trim()).includes(f.person))
+    && inDateRange(site));
+  const dh = $('#dateHint'); if (dh) { const lbl = DATE_FIELDS.find(d => d[0] === f.dateField)?.[1] || ''; dh.textContent = (f.from || f.to) ? `${lbl} ${f.from ? fmtDate(f.from) : '처음'} ~ ${f.to ? fmtDate(f.to) : '끝'} (날짜 없는 현장 제외)` : ''; }
   const shipKey = r => r.ship_date ? r.ship_date : '9999';
   rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
   const stageCount = {}; for (const { c } of S.computed) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
