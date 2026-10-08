@@ -210,7 +210,7 @@
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
   .saved { color:var(--green); font-size:12px; margin-left:6px; }
 
-  /* ---- 상세: 좁은 화면에서는 [현장 정보 | 대화] 두 칸을 옆으로 스와이프 ---- */
+  /* ---- 상세: 좁은 화면에서는 [현장 정보 | 공간 Talk] 두 칸을 옆으로 스와이프 ---- */
   .ptabs { display:none; gap:6px; margin-bottom:10px; }
   .ptabs button { flex:1; border:1px solid var(--line); background:var(--card); padding:8px; border-radius:10px; font-weight:600; color:var(--mute); }
   .ptabs button.on { background:var(--navy); border-color:var(--navy); color:#fff; }
@@ -698,7 +698,7 @@ function hiddenForMe(rec) {
   return !show;
 }
 
-// ----- 현장 대화 (직원 간) -----
+// ----- 공간 Talk (현장 대화, 지금은 직원 간) -----
 // 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
 // 건축주 호출: 건축주 앱 대화창이 열릴 때까지 '준비 중'으로 비활성. 열 때 true로
@@ -810,7 +810,7 @@ async function openChat(site) {
         const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : !n ? `${r} 역할 앱 계정이 없어 호출을 받을 사람이 없어요` : `${nm || r} 호출`;
         return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('') +
       // 건축주: 건축주 앱 대화창이 준비되면 활성 (지금은 '준비 중' 표시)
-      (OWNER_CHAT_OPEN ? '' : `<button class="chip" disabled title="건축주 대화는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`);
+      (OWNER_CHAT_OPEN ? '' : `<button class="chip" disabled title="건축주와의 공간 Talk는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`);
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
@@ -919,7 +919,7 @@ function renderDetail(key) {
   }).join('') : '<div class="sub">판정 불가</div>';
   const pay = c ? c.payment : null;
   $('#main').innerHTML = `<button class="btn sm back" onclick="history.length > 1 ? history.back() : go('#sites')">← 목록</button>
-  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1">${ic('msg')} 대화${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
+  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1">${ic('msg')} 공간 Talk${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
   <div class="grid" id="grid">
     <div>
       <div class="card">
@@ -938,7 +938,7 @@ function renderDetail(key) {
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
     </div>
     <div>
-      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
+      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">공간 Talk <span class="sub" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
         <div class="members" id="members">${renderMembers(rec)}</div>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
         ${site.archived_at ? `<div class="notice" style="margin-top:8px">보관된 현장이라 읽기만 할 수 있어요. 대화 기록은 보관 시작일로부터 5년간 유지됩니다.</div>` : ''}
@@ -1100,7 +1100,7 @@ async function renderNotify() {
   const devRow = d => `<div class="dev"><span class="ic">${ic(d.platform === 'ios' ? 'apple' : d.platform === 'android' ? 'android' : 'pc')}</span><span class="t">${esc(uaLabel(d.ua))} · ${d.platform === 'ios' ? '아이폰' : d.platform === 'android' ? '안드로이드' : 'PC'}${d.endpoint === here ? ' <span class="tag">이 기기</span>' : ''}<span class="sub">등록 ${fmtTime(d.created_at)} · 마지막 확인 ${fmtTime(d.last_seen_at)}</span></span><button class="btn sm" data-rm="${d.id}" data-ep="${esc(d.endpoint)}">삭제</button></div>`;
   $('#main').innerHTML = `<div class="nt"><div class="card">
     <h2>${ic('bell')} 알림 설정</h2>
-    <p class="sub" style="margin:0">현장 대화에서 <b>${ic('call')} 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
+    <p class="sub" style="margin:0">공간 Talk에서 <b>${ic('call')} 호출</b>을 받거나, <b>내가 담당하는 현장</b>에 새 메시지가 오면 알려드려요. 본인이 보낸 메시지는 알리지 않아요.</p>
     <p class="sub" style="margin:6px 0 0">${ic('clock')} <b>근무시간(평일 08:00~17:00)</b>에만 바로 알려요. 그 외 시간과 주말·공휴일에 온 메시지는 다음 근무일 아침 8시 30분에 "몇 건 왔는지" 한 번만 알려드리고, 그 사이 이미 읽은 메시지는 빼요.</p>
     <div class="st ${cls}"><span class="t">${text}</span>${btn}</div>
     <div class="sec"><h3>무엇을 받을까요</h3>
@@ -1166,7 +1166,7 @@ async function renderUsers() {
   const nameOpts = u => `<option value="">— 없음 —</option>`
     + (u.staff_name && !S.nameOptions.some(o => o.name === u.staff_name) ? `<option value="${esc(u.staff_name)}" selected>${esc(u.staff_name)} (Jira에 없음 — 확인 필요)</option>` : '')
     + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
-  $('#main').innerHTML = `${usageHtml}${fbHtml}${holHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 바꾸면 승인됩니다. <b>담당자</b>는 본인 현장만, <b>공무·PM·관리자</b>는 전체 현장을 봅니다(공무·PM은 대화방에서 ${ic('call')} 호출 대상). 차단하면 즉시 접근이 막힙니다.</div>
+  $('#main').innerHTML = `${usageHtml}${fbHtml}${holHtml}<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 바꾸면 승인됩니다. <b>담당자</b>는 본인 현장만, <b>공무·PM·관리자</b>는 전체 현장을 봅니다(공무·PM은 공간 Talk에서 ${ic('call')} 호출 대상). 차단하면 즉시 접근이 막힙니다.</div>
     <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>알림</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
     ${S.users.map(u => `<tr data-id="${u.id}">
       <td><div class="nm">${esc(u.google_name || '-')}</div><div class="sub">${esc(u.email)}</div></td>
