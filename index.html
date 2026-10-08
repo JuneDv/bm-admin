@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공간제작소 관리자</title>
+<link rel="icon" href="logo.png">
+<style>
+  :root {
+    --bg:#f4f6fa; --card:#fff; --line:#e3e8f0; --text:#1f2a3a; --mute:#6b7788;
+    --navy:#2f4f85; --navy-d:#1f3a5f; --head:#e4ecf7; --green:#5b8a6e; --green-l:#8fbf9f;
+    --gray:#b4bcc8; --amber:#e8b765; --red:#c86b6b; --radius:12px;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif; font-size:15px; line-height:1.5; }
+  a { color:var(--navy); text-decoration:none; }
+  button { font:inherit; cursor:pointer; }
+  input, select { font:inherit; }
+  .hidden { display:none !important; }
+
+  /* ---- 상단 ---- */
+  .top { background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+  .top .in { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:14px; }
+  .top img { height:30px; }
+  .top .ttl { font-weight:700; color:var(--navy-d); }
+  .top nav { display:flex; gap:4px; margin-left:12px; }
+  .top nav button { border:0; background:transparent; padding:8px 12px; border-radius:8px; color:var(--mute); font-weight:600; }
+  .top nav button.on { background:var(--head); color:var(--navy-d); }
+  .top nav .badge { display:inline-block; min-width:18px; padding:0 6px; margin-left:4px; border-radius:9px; background:var(--amber); color:#5a4310; font-size:12px; font-weight:700; }
+  .top .me { margin-left:auto; display:flex; align-items:center; gap:10px; color:var(--mute); font-size:13px; }
+  .top .me b { color:var(--text); }
+  .role { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:700; background:var(--head); color:var(--navy-d); }
+  .role.master { background:#efe4c8; color:#5a4310; }
+  .role.owner { background:#dfe9e2; color:#2f5b40; }
+  .lnk { border:0; background:transparent; color:var(--mute); text-decoration:underline; padding:0; }
+
+  .wrap { max-width:1200px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; }
+  .center { max-width:420px; margin:60px auto; text-align:center; }
+  .center img { height:48px; margin-bottom:16px; }
+  .center h1 { font-size:20px; margin:0 0 8px; color:var(--navy-d); }
+  .center p { color:var(--mute); margin:0 0 20px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--line); background:var(--card); padding:10px 16px; border-radius:10px; font-weight:600; color:var(--text); }
+  .btn.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .btn.sm { padding:6px 10px; font-size:13px; border-radius:8px; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .notice { background:#fff7e3; border:1px solid #f1dfae; color:#5a4310; padding:10px 14px; border-radius:10px; font-size:14px; }
+  .err { background:#fbeaea; border:1px solid #efc7c7; color:#7a2e2e; padding:10px 14px; border-radius:10px; font-size:14px; }
+
+  /* ---- 목록 ---- */
+  .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .tools input[type=search] { flex:1 1 220px; min-width:180px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+  .tools select { padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  .chip { border:1px solid var(--line); background:var(--card); border-radius:999px; padding:4px 10px; font-size:13px; color:var(--mute); }
+  .chip b { color:var(--text); margin-left:4px; }
+  .chip.on { background:var(--navy); border-color:var(--navy); color:#fff; } .chip.on b { color:#fff; }
+  .count { color:var(--mute); font-size:13px; margin:0 0 8px; }
+
+  table.list { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  table.list th, table.list td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; font-size:14px; }
+  table.list th { background:var(--head); color:var(--navy-d); font-weight:700; white-space:nowrap; }
+  table.list tr:last-child td { border-bottom:0; }
+  table.list tbody tr { cursor:pointer; } table.list tbody tr:hover { background:#f7f9fc; }
+  .nm { font-weight:700; } .sub { color:var(--mute); font-size:12px; }
+  .dots { display:inline-flex; gap:3px; vertical-align:middle; margin-right:8px; }
+  .dots i { width:9px; height:9px; border-radius:50%; background:var(--gray); display:inline-block; }
+  .dots i.d { background:var(--green-l); } .dots i.n { background:var(--amber); } .dots i.p { background:repeating-linear-gradient(45deg,var(--green-l) 0 2px,#fff 2px 4px); }
+  .st { white-space:nowrap; }
+  .pct { font-variant-numeric:tabular-nums; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:8px; background:var(--head); color:var(--navy-d); font-size:12px; white-space:nowrap; }
+  .tag.site { background:#efe4c8; color:#5a4310; }
+  .empty { padding:40px; text-align:center; color:var(--mute); }
+
+  /* ---- 상세 ---- */
+  .back { margin-bottom:10px; }
+  .grid { display:grid; grid-template-columns:1.2fr .8fr; gap:16px; }
+  .h { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .h h2 { margin:0; font-size:20px; color:var(--navy-d); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:14px; }
+  .kv dt { color:var(--mute); white-space:nowrap; } .kv dd { margin:0; }
+  .sec { margin-top:14px; } .sec h3 { margin:0 0 8px; font-size:14px; color:var(--mute); font-weight:700; letter-spacing:.02em; }
+  .stages { display:flex; flex-direction:column; gap:6px; }
+  .stg { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+  .stg.now { border-color:var(--amber); background:#fffaf0; } .stg.done { color:var(--mute); }
+  .stg .m { width:20px; text-align:center; font-weight:700; } .stg.done .m { color:var(--green); } .stg.now .m { color:#b07d1a; }
+  .stg .t { flex:1; font-weight:600; } .stg.done .t { font-weight:500; }
+  .stg .c { font-size:12px; color:var(--mute); }
+  .stg .c.p { color:#b07d1a; }
+  .items { margin:4px 0 0 30px; font-size:13px; color:var(--mute); }
+  .items span { display:inline-block; margin-right:10px; }
+  .items .ok { color:var(--green); } .items .no { color:var(--red); }
+  .proc { border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
+  .proc summary { padding:8px 12px; cursor:pointer; font-weight:600; display:flex; gap:10px; align-items:center; background:#fafbfd; }
+  .proc summary .s { font-weight:400; color:var(--mute); font-size:13px; margin-left:auto; }
+  .proc ul { list-style:none; margin:0; padding:6px 12px 10px; font-size:13px; }
+  .proc li { display:flex; justify-content:space-between; gap:10px; padding:3px 0; border-bottom:1px dashed var(--line); } .proc li:last-child { border-bottom:0; }
+  .proc li .ok { color:var(--green); } .proc li .now { color:#b07d1a; } .proc li .skip { color:var(--gray); text-decoration:line-through; }
+  .pay { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .pay .b { border:1px solid var(--line); border-radius:10px; padding:10px; text-align:center; }
+  .pay .b .l { font-size:12px; color:var(--mute); } .pay .b .v { font-weight:700; margin-top:2px; }
+  .pay .b.done { background:#eef5f0; border-color:#cfe3d6; } .pay .b.partial { background:#fff7e3; border-color:#f1dfae; }
+  .ct { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; } .ct:last-child { border-bottom:0; }
+  .ct .lb { color:var(--mute); width:64px; } .ct a { margin-left:auto; }
+
+  /* ---- 관리자 관리 ---- */
+  table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  .saved { color:var(--green); font-size:12px; margin-left:6px; }
+
+  @media (max-width: 820px) {
+    .grid { grid-template-columns:1fr; }
+    table.list thead { display:none; }
+    table.list, table.list tbody, table.list tr, table.list td { display:block; }
+    table.list tr { border-bottom:1px solid var(--line); padding:8px 4px; }
+    table.list td { border:0; padding:3px 8px; }
+    table.list td.hide-m { display:none; }
+    .top nav button { padding:8px 8px; }
+    .top .me span.email { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top hidden" id="top">
+  <div class="in">
+    <img src="logo.png" alt="공간제작소">
+    <span class="ttl">관리자</span>
+    <nav>
+      <button id="navSites" class="on" onclick="go('#sites')">현장 목록</button>
+      <button id="navUsers" class="hidden" onclick="go('#users')">관리자 관리<span class="badge hidden" id="pendingBadge"></span></button>
+    </nav>
+    <div class="me">
+      <span id="syncInfo" class="sub"></span>
+      <span><b id="meName"></b> <span class="email" id="meEmail"></span> <span class="role" id="meRole"></span></span>
+      <button class="lnk" onclick="signOut()">로그아웃</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="main">
+  <div class="center card" id="loading"><p>불러오는 중…</p></div>
+</main>
+
+<script src="stage-engine.js"></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://ljxonejavjagwqrorfui.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_fWTsacLqOMhAV9VOeTPy5Q_Elvgx8Fn';   // 공개용 키 — RLS로 보호됨
+const OWNER_APP_URL = 'https://bm-status-app.vercel.app';
+const JIRA_URL = 'https://gg-arch.atlassian.net/browse/';
+const E = window.StageEngine;
+
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const won = n => { n = Math.round(Number(n) || 0); if (!n) return '-'; const eok = Math.floor(n/1e8), man = Math.floor((n%1e8)/1e4); if (eok) return man ? `${eok}억 ${man.toLocaleString()}만` : `${eok}억`; return man ? `${man.toLocaleString()}만` : n.toLocaleString() + '원'; };
+const fmtDate = s => s ? String(s).slice(0,10).replace(/-/g,'.') : '-';
+const fmtTime = iso => iso ? new Date(iso).toLocaleString('ko-KR', { timeZone:'Asia/Seoul', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
+const fmtPhone = p => { const d = String(p||'').replace(/[^0-9]/g,''); return d.length === 11 ? `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}` : d.length === 10 ? `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}` : d; };
+const ROLE_LABEL = { pending:'승인 대기', manager:'담당자', master:'마스터', owner:'소유자', blocked:'차단' };
+
+// ---------- DB 행 → 판정 엔진 입력(시트 컬럼 형식) ----------
+const s = v => (v === null || v === undefined) ? '' : String(v);
+const toRow = r => ({
+  'BM KEY': r.bm_key, 'ISSUE NAME': s(r.issue_name), 'SITE': s(r.site_address), 'NAME': s(r.owner_name),
+  'PHONE NUM.': (r.phones || []).join(', '), 'MANAGER': s(r.manager), 'DESIGN': s(r.designer), 'INTERIOR': s(r.interior),
+  'BM STATE': s(r.bm_state), '계약일': s(r.contract_date), '희망입주일': s(r.movein_date), '제작처': s(r.factory_type),
+  '상차일': s(r.ship_date), '착공일': s(r.start_date),
+  '공사비_총액': s(r.cost_total), '공사비_수금액': s(r.cost_paid), '공사비_수금율': s(r.cost_pct),
+  '설계비_총액': s(r.design_total), '설계비_수금액': s(r.design_paid), '설계비_수금율': s(r.design_pct),
+});
+const toStage = i => ({ 'BM KEY': i.bm_key, 'PROCESS': i.process, 'STAGE KEY': i.stage_key, 'STAGE NAME': s(i.name), 'STATE': s(i.state), 'SEQ': s(i.seq) });
+
+// ---------- 상태 ----------
+const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], lastSync:null, users:[], nameOptions:[], filter:{ q:'', stage:'', state:'', track:'', person:'', sort:'ship' } };
+
+// ---------- 라우팅 ----------
+window.go = h => { location.hash = h; };
+window.addEventListener('hashchange', render);
+
+// ---------- 인증 ----------
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  S.user = session?.user || null;
+  sb.auth.onAuthStateChange((_e, sess) => { const was = !!S.user; S.user = sess?.user || null; if (!!S.user !== was) afterAuth(); });
+  await afterAuth();
+}
+async function afterAuth() {
+  if (!S.user) { S.me = null; $('#top').classList.add('hidden'); renderLogin(); return; }
+  const { data: me, error } = await sb.from('admin_users').select('*').eq('id', S.user.id).maybeSingle();
+  if (error || !me) { renderMsg('계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', true); return; }
+  S.me = me;
+  sb.rpc('touch_login').then(() => {});
+  if (!['manager','master','owner'].includes(me.role)) { $('#top').classList.add('hidden'); await renderPending(); return; }
+  $('#top').classList.remove('hidden');
+  $('#meName').textContent = me.google_name || me.staff_name || '';
+  $('#meEmail').textContent = me.email;
+  $('#meRole').textContent = ROLE_LABEL[me.role] + (me.staff_name ? ` · ${me.staff_name}` : '');
+  $('#meRole').className = 'role ' + me.role;
+  $('#navUsers').classList.toggle('hidden', me.role !== 'owner');
+  await loadData();
+  if (!location.hash || location.hash === '#login') location.hash = '#sites';
+  render();
+}
+window.signIn = async () => {
+  const { error } = await sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + location.pathname } });
+  if (error) renderMsg('로그인을 시작하지 못했습니다: ' + error.message, true);
+};
+window.signOut = async () => { await sb.auth.signOut(); location.hash = ''; };
+
+// ---------- 데이터 ----------
+async function loadData() {
+  const [sitesRes, staffRes, runRes] = await Promise.all([
+    sb.from('sites').select('*').order('issue_name'),
+    sb.from('staff').select('name, phone'),
+    sb.from('sync_runs').select('started_at, finished_at, sites, items').order('id', { ascending:false }).limit(1),
+  ]);
+  S.sites = sitesRes.data || [];
+  S.staff = Object.fromEntries((staffRes.data || []).map(r => [r.name, r.phone]));
+  S.lastSync = runRes.data?.[0] || null;
+  // 세부공정: 1,000행씩 페이지로 전부 읽기 (RLS가 담당 현장 것만 돌려줌)
+  const items = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from('stage_items').select('bm_key, process, stage_key, name, state, seq').order('stage_key').range(from, from + 999);
+    if (error || !data?.length) break;
+    items.push(...data);
+    if (data.length < 1000) break;
+  }
+  S.itemsBy = {};
+  for (const it of items) (S.itemsBy[it.bm_key] ||= []).push(toStage(it));
+  recompute();
+  $('#syncInfo').textContent = S.lastSync ? `DB 갱신 ${fmtTime(S.lastSync.finished_at || S.lastSync.started_at)}` : '';
+}
+function recompute() {
+  S.computed = S.sites.map(site => { const row = toRow(site); let c = null; try { c = E.compute(row, S.itemsBy[site.bm_key] || []); } catch (e) { console.warn(site.bm_key, e); } return { site, row, c }; });
+}
+// 개발 확인용 훅 (데이터 접근 권한과 무관 — RLS가 서버에서 막음)
+window.__dbg = { S, recompute, toStage, renderList: () => renderList(), renderDetail: k => renderDetail(k) };
+
+// ---------- 화면 ----------
+function render() {
+  if (!S.user || !S.me || !['manager','master','owner'].includes(S.me.role)) return;
+  const h = location.hash || '#sites';
+  $('#navSites').classList.toggle('on', h.startsWith('#sites') || h.startsWith('#site/'));
+  $('#navUsers').classList.toggle('on', h.startsWith('#users'));
+  if (h.startsWith('#site/')) renderDetail(decodeURIComponent(h.slice(6)));
+  else if (h.startsWith('#users') && S.me.role === 'owner') renderUsers();
+  else renderList();
+}
+function renderMsg(msg, isErr) { $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt=""><p class="${isErr ? 'err' : ''}">${esc(msg)}</p><button class="btn" onclick="location.reload()">다시 시도</button></div>`; }
+function renderLogin() {
+  $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt="공간제작소"><h1>관리자 로그인</h1><p>직원 전용입니다. 구글 계정으로 로그인하면 소유자 승인 후 담당 현장을 볼 수 있어요.</p>
+    <button class="btn primary" onclick="signIn()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#fff" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.3-.4-3.5z"/></svg> 구글로 로그인</button></div>`;
+}
+async function renderPending() {
+  const me = S.me;
+  if (me.role === 'blocked') { $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt=""><h1>접근이 차단되었습니다</h1><p>${esc(me.email)}</p><button class="btn" onclick="signOut()">로그아웃</button></div>`; return; }
+  if (!S.nameOptions.length) { const { data } = await sb.rpc('staff_name_options'); S.nameOptions = data || []; }
+  const opts = S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === me.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
+  $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt=""><h1>승인 대기 중</h1>
+    <p><b>${esc(me.google_name || '')}</b> ${esc(me.email)}<br>소유자가 승인하면 담당 현장을 볼 수 있습니다.</p>
+    <div class="notice" style="text-align:left;margin-bottom:12px">Jira에 등록된 <b>내 이름</b>을 골라 주세요. 영업·설계·인테리어 담당자로 적힌 현장이 자동으로 내 현장이 됩니다.</div>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <select id="nameSel" style="padding:9px 10px;border:1px solid var(--line);border-radius:10px;min-width:220px"><option value="">— 이름 선택 —</option>${opts}</select>
+      <button class="btn primary" id="nameSave">저장</button>
+    </div>
+    <p id="nameMsg" class="sub" style="margin-top:10px">${me.staff_name ? `선택됨: ${esc(me.staff_name)}` : ''}</p>
+    <button class="lnk" onclick="signOut()">로그아웃</button></div>`;
+  $('#nameSave').onclick = async () => {
+    const v = $('#nameSel').value; if (!v) return;
+    const { error } = await sb.rpc('choose_staff_name', { p_name: v });
+    $('#nameMsg').textContent = error ? '저장 실패: ' + error.message : `선택됨: ${v} — 소유자 승인을 기다려 주세요.`;
+    if (!error) S.me.staff_name = v;
+  };
+}
+
+// ----- 현장 목록 -----
+const STAGE_DEFS = [...E.FACTORY_STAGES, ...E.SITE_STAGES.filter(d => !E.FACTORY_STAGES.some(f => f.id === d.id))];
+function dots(c) { if (!c) return ''; return `<span class="dots">${c.stages.map(st => `<i class="${st.status === 'done' ? (st.check && st.check.status === 'partial' ? 'p' : 'd') : st.status === 'now' ? 'n' : ''}"></i>`).join('')}</span>`; }
+function renderList() {
+  const f = S.filter;
+  const people = [...new Set(S.sites.flatMap(r => [r.manager, r.designer, r.interior]).map(x => (x || '').trim()).filter(x => x && x !== '-'))].sort();
+  const states = [...new Set(S.sites.map(r => r.bm_state).filter(Boolean))];
+  const q = f.q.trim().toLowerCase();
+  let rows = S.computed.filter(({ site, c }) =>
+    (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
+    && (!f.stage || (c && c.currentId === f.stage))
+    && (!f.state || site.bm_state === f.state)
+    && (!f.track || (c && c.track === f.track))
+    && (!f.person || [site.manager, site.designer, site.interior].map(x => (x || '').trim()).includes(f.person)));
+  const shipKey = r => r.ship_date ? r.ship_date : '9999';
+  rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
+  const stageCount = {}; for (const { c } of S.computed) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
+  const chips = STAGE_DEFS.filter(d => stageCount[d.id]).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id]}</b></button>`).join('');
+  const hint = S.me.role === 'manager' && !S.sites.length ? `<div class="notice" style="margin-bottom:12px">담당 현장이 없습니다. ${S.me.staff_name ? `Jira 담당자 이름 "${esc(S.me.staff_name)}"으로 적힌 현장이 없어요.` : '이름이 아직 연결되지 않았어요.'} 소유자에게 확인을 요청해 주세요.</div>` : '';
+  $('#main').innerHTML = `${hint}
+    <div class="tools">
+      <input type="search" id="q" placeholder="현장명 · 건축주 · BM키 · 주소 검색" value="${esc(f.q)}">
+      <select id="fState"><option value="">BM 상태 전체</option>${states.map(x => `<option ${f.state === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
+      <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
+    </div>
+    <div class="chips"><button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${S.computed.length}</b></button>${chips}</div>
+    <p class="count">${rows.length}개 현장</p>
+    ${rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
+      ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
+        <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
+        <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
+        <td class="hide-m">${fmtDate(site.ship_date)}</td>
+        <td class="hide-m sub">영업 ${esc(site.manager || '-')} · 설계 ${esc(site.designer || '-')} · 인테리어 ${esc(site.interior || '-')}</td>
+      </tr>`).join('')}</tbody></table>` : `<div class="card empty">조건에 맞는 현장이 없습니다.</div>`}`;
+  $('#q').oninput = e => { f.q = e.target.value; renderList(); };
+  $('#fState').onchange = e => { f.state = e.target.value; renderList(); };
+  $('#fTrack').onchange = e => { f.track = e.target.value; renderList(); };
+  $('#fPerson').onchange = e => { f.person = e.target.value; renderList(); };
+  $('#fSort').onchange = e => { f.sort = e.target.value; renderList(); };
+  document.querySelectorAll('.chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderList(); });
+  document.querySelectorAll('tr[data-key]').forEach(tr => tr.onclick = () => go('#site/' + encodeURIComponent(tr.dataset.key)));
+  if (q) $('#q').focus();
+}
+
+// ----- 현장 상세 -----
+const stateCls = st => E.isSkipped(st) ? 'skip' : E.isDone(st) ? 'ok' : E.isActive(st) ? 'now' : '';
+function renderDetail(key) {
+  const rec = S.computed.find(x => x.site.bm_key === key);
+  if (!rec) { $('#main').innerHTML = `<button class="btn sm back" onclick="go('#sites')">← 목록</button><div class="card empty">현장을 찾을 수 없거나 열람 권한이 없습니다.</div>`; return; }
+  const { site, c } = rec; const items = S.itemsBy[key] || [];
+  const phones = site.phones || [];
+  const staffTel = name => { const p = S.staff[(name || '').trim()]; return p ? `<a class="btn sm" href="tel:${p}">📞 ${fmtPhone(p)}</a>` : `<span class="sub">번호 없음</span>`; };
+  const procs = [['AD','설계'],['OFB','공무'],['FC','공장생산'],['COS','현장제작'],['IOS','현장설치'],['ASOS','A/S']].map(([p, label]) => {
+    const list = items.filter(i => i.PROCESS === p).sort((a, b) => (+a.SEQ || 0) - (+b.SEQ || 0)); if (!list.length) return '';
+    const live = list.filter(i => !E.isSkipped(i.STATE)); const done = live.filter(i => E.isDone(i.STATE)).length;
+    const stateKey = site[p.toLowerCase() + '_state'];
+    return `<details class="proc"><summary>${label} <span class="tag">${esc(stateKey || '-')}</span><span class="s">${done}/${live.length} 완료</span></summary><ul>${list.map(i => `<li><span>${esc(E.stripSite(i['STAGE NAME'], site.issue_name))}</span><span class="${stateCls(i.STATE)}">${esc(i.STATE || '-')}</span></li>`).join('')}</ul></details>`;
+  }).join('');
+  const stages = c ? c.stages.map(st => {
+    const chk = st.check; const cl = st.status; const mark = cl === 'done' ? '✓' : cl === 'now' ? '●' : '○';
+    const note = cl === 'done' && chk ? (chk.status === 'done' ? '완료' : chk.status === 'partial' ? '미완료 항목 있음' : '자료 없음') : cl === 'now' ? '현재 단계' : '';
+    const sub = cl === 'done' && chk && chk.status === 'partial' ? `<div class="items">${chk.items.map(i => `<span class="${E.isDone(i.state) ? 'ok' : 'no'}">${E.isDone(i.state) ? '✓' : '✕'} ${esc(i.name)} <em>${esc(i.state)}</em></span>`).join('')}</div>` : '';
+    return `<div class="stg ${cl}"><span class="m">${mark}</span><span class="t">${st.index + 1}. ${esc(st.title)}</span><span class="c ${chk && chk.status === 'partial' ? 'p' : ''}">${note}</span></div>${sub}`;
+  }).join('') : '<div class="sub">판정 불가</div>';
+  const pay = c ? c.payment : null;
+  $('#main').innerHTML = `<button class="btn sm back" onclick="history.length > 1 ? history.back() : go('#sites')">← 목록</button>
+  <div class="grid">
+    <div>
+      <div class="card">
+        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}" target="_blank" rel="noopener">건축주 화면 보기</a>` : ''}</div></div>
+        <div class="sec"><dl class="kv">
+          <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
+          <dt>BM 상태</dt><dd><span class="tag">${esc(site.bm_state || '-')}</span> ${c ? `<span class="sub">→ ${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}</span>` : ''}</dd>
+          <dt>계약일</dt><dd>${fmtDate(site.contract_date)}</dd>
+          <dt>착공일</dt><dd>${fmtDate(site.start_date)}</dd>
+          <dt>상차일</dt><dd>${fmtDate(site.ship_date)}</dd>
+          <dt>희망 입주</dt><dd>${fmtDate(site.movein_date)}</dd>
+        </dl></div>
+        <div class="sec"><h3>단계</h3><div class="stages">${stages}</div></div>
+      </div>
+      <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
+    </div>
+    <div>
+      <div class="card"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공사비</h3>
+        <dl class="kv"><dt>총액</dt><dd>${won(site.cost_total)}</dd><dt>수금액</dt><dd>${won(site.cost_paid)} <span class="sub">(${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) : '-'}%)</span></dd></dl>
+        ${pay ? `<div class="pay" style="margin-top:10px">${pay.items.map(i => `<div class="b ${i.status}"><div class="l">${i.label} ${Math.round(i.ratio * 100)}%</div><div class="v">${i.status === 'done' ? '완료' : i.status === 'partial' ? '일부' : '대기'}</div><div class="sub">${won(i.planned)}</div></div>`).join('')}</div>` : ''}
+        ${site.design_total ? `<dl class="kv" style="margin-top:12px"><dt>설계비</dt><dd>${won(site.design_total)} · 수금 ${won(site.design_paid)} (${site.design_pct != null ? Number(site.design_pct).toFixed(0) : '-'}%)</dd></dl>` : ''}
+      </div>
+      <div class="card" style="margin-top:16px"><h3 style="margin:0 0 6px;font-size:14px;color:var(--mute)">담당자</h3>
+        <div class="ct"><span class="lb">영업</span>${esc(site.manager || '-')}${staffTel(site.manager)}</div>
+        <div class="ct"><span class="lb">설계</span>${esc(site.designer || '-')}${staffTel(site.designer)}</div>
+        <div class="ct"><span class="lb">인테리어</span>${esc(site.interior || '-')}${staffTel(site.interior)}</div>
+      </div>
+      <div class="card" style="margin-top:16px"><h3 style="margin:0 0 6px;font-size:14px;color:var(--mute)">공종 키</h3>
+        <dl class="kv">${[['AD','ad'],['OFB','ofb'],['FC','fc'],['COS','cos'],['IOS','ios'],['ASOS','asos']].filter(([,k]) => site[k + '_key']).map(([p, k]) => `<dt>${p}</dt><dd><a href="${JIRA_URL}${esc(site[k + '_key'])}" target="_blank" rel="noopener">${esc(site[k + '_key'])}</a> <span class="sub">${esc(site[k + '_state'] || '')}</span></dd>`).join('') || '<dd class="sub">연결된 공종 없음</dd>'}</dl>
+      </div>
+    </div>
+  </div>`;
+  window.scrollTo(0, 0);
+}
+
+// ----- 관리자 관리 (소유자) -----
+async function renderUsers() {
+  const [{ data: users }, nameRes] = await Promise.all([
+    sb.from('admin_users').select('*').order('created_at', { ascending:false }),
+    S.nameOptions.length ? Promise.resolve({ data: S.nameOptions }) : sb.rpc('staff_name_options'),
+  ]);
+  S.users = users || []; S.nameOptions = nameRes.data || [];
+  const pending = S.users.filter(u => u.role === 'pending').length;
+  $('#pendingBadge').textContent = pending; $('#pendingBadge').classList.toggle('hidden', !pending);
+  const roleOpts = u => ['pending','manager','master','blocked'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('');
+  const nameOpts = u => `<option value="">— 없음 —</option>` + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
+  $('#main').innerHTML = `<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
+    <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
+    ${S.users.map(u => `<tr data-id="${u.id}">
+      <td><div class="nm">${esc(u.google_name || '-')}</div><div class="sub">${esc(u.email)}</div></td>
+      <td>${u.role === 'owner' ? esc(u.staff_name || '-') : `<select data-f="staff_name">${nameOpts(u)}</select>`}</td>
+      <td>${u.role === 'owner' ? '<span class="role owner">소유자</span>' : `<select data-f="role">${roleOpts(u)}</select><span class="saved"></span>`}</td>
+      <td class="sub">${fmtTime(u.created_at)}</td>
+      <td class="sub">${fmtTime(u.last_login_at)}</td>
+    </tr>`).join('')}</tbody></table>`;
+  document.querySelectorAll('tr[data-id] select').forEach(sel => sel.onchange = async () => {
+    const tr = sel.closest('tr'); const id = tr.dataset.id; const u = S.users.find(x => x.id === id);
+    const patch = { [sel.dataset.f]: sel.value || null };
+    if (sel.dataset.f === 'role' && ['manager','master'].includes(sel.value) && !u.approved_at) { patch.approved_at = new Date().toISOString(); patch.approved_by = S.me.id; }
+    const { error } = await sb.from('admin_users').update(patch).eq('id', id);
+    const mark = tr.querySelector('.saved'); if (mark) { mark.textContent = error ? '저장 실패' : '저장됨'; mark.style.color = error ? 'var(--red)' : 'var(--green)'; setTimeout(() => mark.textContent = '', 2000); }
+    if (!error) { Object.assign(u, patch); const p = S.users.filter(x => x.role === 'pending').length; $('#pendingBadge').textContent = p; $('#pendingBadge').classList.toggle('hidden', !p); }
+  });
+}
+
+boot().catch(e => renderMsg('초기화 오류: ' + e.message, true));
+</script>
+</body>
+</html>
