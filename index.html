@@ -256,23 +256,23 @@ function renderLogin() {
 async function renderPending() {
   const me = S.me;
   if (me.role === 'blocked') { $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt=""><h1>접근이 차단되었습니다</h1><p>${esc(me.email)}</p><button class="btn" onclick="signOut()">로그아웃</button></div>`; return; }
-  if (!S.nameOptions.length) { const { data } = await sb.rpc('staff_name_options'); S.nameOptions = data || []; }
-  const opts = S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === me.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
   $('#main').innerHTML = `<div class="center card"><img src="logo.png" alt=""><h1>승인 대기 중</h1>
     <p><b>${esc(me.google_name || '')}</b> ${esc(me.email)}<br>소유자가 승인하면 담당 현장을 볼 수 있습니다.</p>
-    <div class="notice" style="text-align:left;margin-bottom:12px">Jira에 등록된 <b>내 이름</b>을 골라 주세요. 영업·설계·인테리어 담당자로 적힌 현장이 자동으로 내 현장이 됩니다.</div>
+    <div class="notice" style="text-align:left;margin-bottom:12px">회사에서 쓰는 <b>본인 이름</b>을 적고 저장해 주세요. 소유자가 확인한 뒤 승인합니다.</div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-      <select id="nameSel" style="padding:9px 10px;border:1px solid var(--line);border-radius:10px;min-width:220px"><option value="">— 이름 선택 —</option>${opts}</select>
+      <input id="nameInp" type="text" maxlength="20" placeholder="예: 홍길동" value="${esc(me.staff_name || '')}" style="padding:9px 12px;border:1px solid var(--line);border-radius:10px;min-width:200px">
       <button class="btn primary" id="nameSave">저장</button>
     </div>
-    <p id="nameMsg" class="sub" style="margin-top:10px">${me.staff_name ? `선택됨: ${esc(me.staff_name)}` : ''}</p>
+    <p id="nameMsg" class="sub" style="margin-top:10px">${me.staff_name ? `저장됨: ${esc(me.staff_name)} — 소유자 승인을 기다려 주세요.` : ''}</p>
     <button class="lnk" onclick="signOut()">로그아웃</button></div>`;
-  $('#nameSave').onclick = async () => {
-    const v = $('#nameSel').value; if (!v) return;
+  const save = async () => {
+    const v = $('#nameInp').value.trim(); if (!v) { $('#nameInp').focus(); return; }
     const { error } = await sb.rpc('choose_staff_name', { p_name: v });
-    $('#nameMsg').textContent = error ? '저장 실패: ' + error.message : `선택됨: ${v} — 소유자 승인을 기다려 주세요.`;
+    $('#nameMsg').textContent = error ? '저장 실패: ' + error.message : `저장됨: ${v} — 소유자 승인을 기다려 주세요.`;
     if (!error) S.me.staff_name = v;
   };
+  $('#nameSave').onclick = save;
+  $('#nameInp').addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 }
 
 // ----- 현장 목록 -----
@@ -391,7 +391,10 @@ async function renderUsers() {
   const pending = S.users.filter(u => u.role === 'pending').length;
   $('#pendingBadge').textContent = pending; $('#pendingBadge').classList.toggle('hidden', !pending);
   const roleOpts = u => ['pending','manager','master','blocked'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('');
-  const nameOpts = u => `<option value="">— 없음 —</option>` + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
+  // 가입자가 적은 이름이 Jira 담당자 목록에 없으면 그대로 보여주되 표시해 둠 (소유자가 맞는 Jira 이름으로 바꿔 승인)
+  const nameOpts = u => `<option value="">— 없음 —</option>`
+    + (u.staff_name && !S.nameOptions.some(o => o.name === u.staff_name) ? `<option value="${esc(u.staff_name)}" selected>${esc(u.staff_name)} (Jira에 없음 — 확인 필요)</option>` : '')
+    + S.nameOptions.map(o => `<option value="${esc(o.name)}" ${o.name === u.staff_name ? 'selected' : ''}>${esc(o.name)} (${esc(o.roles)})</option>`).join('');
   $('#main').innerHTML = `<div class="notice" style="margin-bottom:12px">가입자가 고른 Jira 이름이 맞는지 확인한 뒤 역할을 <b>담당자</b>(본인 현장만) 또는 <b>마스터</b>(전체 현장)로 바꾸면 승인됩니다. 차단하면 즉시 접근이 막힙니다.</div>
     <table class="list"><thead><tr><th>이름 · 이메일</th><th>Jira 이름</th><th>역할</th><th>가입</th><th>마지막 로그인</th></tr></thead><tbody>
     ${S.users.map(u => `<tr data-id="${u.id}">
