@@ -21,8 +21,9 @@
   /* ---- 상단 ---- */
   .top { background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
   .top .in { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:14px; }
-  .top img { height:30px; }
-  .top .ttl { font-weight:700; color:var(--navy-d); }
+  .top img { height:30px; display:block; }
+  .top .brand { display:flex; align-items:center; gap:8px; text-decoration:none; }
+  .top .ttl { font-size:12px; color:var(--mute); font-weight:600; line-height:1.2; }
   .top nav { display:flex; gap:4px; margin-left:12px; }
   .top nav button { border:0; background:transparent; padding:8px 12px; border-radius:8px; color:var(--mute); font-weight:600; }
   .top nav button.on { background:var(--head); color:var(--navy-d); }
@@ -148,15 +149,14 @@
 
 <header class="top hidden" id="top">
   <div class="in">
-    <img src="logo.png" alt="공간제작소">
-    <span class="ttl">관리자</span>
+    <a class="brand" href="#sites" title="현장 목록으로"><img src="logo.png" alt="공간제작소"><span class="ttl" id="brandRole">관리자</span></a>
     <nav>
       <button id="navSites" class="on" onclick="go('#sites')">현장 목록</button>
       <button id="navUsers" class="hidden" onclick="go('#users')">관리자 관리<span class="badge hidden" id="pendingBadge"></span></button>
     </nav>
     <div class="me">
       <span id="syncInfo" class="sub"></span>
-      <span><b id="meName"></b> <span class="email" id="meEmail"></span> <span class="role" id="meRole"></span></span>
+      <span><b id="meName"></b> <span class="email" id="meEmail"></span></span>
       <button class="lnk" onclick="signOut()">로그아웃</button>
     </div>
   </div>
@@ -224,8 +224,7 @@ async function afterAuth() {
   $('#top').classList.remove('hidden');
   $('#meName').textContent = me.google_name || me.staff_name || '';
   $('#meEmail').textContent = me.email;
-  $('#meRole').textContent = ROLE_LABEL[me.role] + (me.staff_name ? ` · ${me.staff_name}` : '');
-  $('#meRole').className = 'role ' + me.role;
+  $('#brandRole').textContent = ROLE_LABEL[me.role] + (me.staff_name ? ` · ${me.staff_name}` : '');
   $('#navUsers').classList.toggle('hidden', me.role !== 'owner');
   await loadData();
   if (!location.hash || location.hash === '#login') location.hash = '#sites';
