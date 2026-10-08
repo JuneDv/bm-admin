@@ -236,7 +236,7 @@ function recompute() {
   S.computed = S.sites.map(site => { const row = toRow(site); let c = null; try { c = E.compute(row, S.itemsBy[site.bm_key] || []); } catch (e) { console.warn(site.bm_key, e); } return { site, row, c }; });
 }
 // 개발 확인용 훅 (데이터 접근 권한과 무관 — RLS가 서버에서 막음)
-window.__dbg = { S, recompute, toStage, renderList: () => renderList(), renderDetail: k => renderDetail(k) };
+window.__dbg = { S, recompute, toStage, renderList: () => renderList(), renderDetail: k => renderDetail(k), renderPending: () => renderPending() };
 
 // ---------- 화면 ----------
 function render() {
