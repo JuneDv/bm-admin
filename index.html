@@ -154,6 +154,11 @@
   .att .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .att .gone { font-size:12px; color:var(--mute); border:1px dashed var(--line); border-radius:10px; padding:6px 10px; }
   .usage { font-size:13px; color:var(--mute); margin-bottom:10px; } .usage b { color:var(--text); }
+  .members { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .mem { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:#fafbfd; font-size:12px; color:var(--text); }
+  .mem .rl { color:var(--mute); } .mem .dot { width:7px; height:7px; border-radius:50%; background:var(--gray); display:inline-block; }
+  .mem.on .dot { background:var(--green); } .mem.off { color:var(--mute); border-style:dashed; } .mem.off .nm { text-decoration:line-through; }
+  .mem .note { color:var(--mute); font-size:11px; }
 
   /* ---- 관리자 관리 ---- */
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
@@ -553,6 +558,35 @@ function hiddenForMe(rec) {
 }
 
 // ----- 현장 대화 (직원 간) -----
+// 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
+// (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
+function chatMembers(rec) {
+  const site = rec.site, c = rec.c;
+  const designOver = !!(c && c.groupStatus.shimDo === 'done');
+  const interiorOver = adAllDone(site.bm_key);
+  const nm = v => (v || '').trim();
+  return [
+    { role: '영업',     name: nm(site.manager),  active: true,         leftNote: '' },
+    { role: '설계',     name: nm(site.designer), active: !designOver,  leftNote: '실시도면 완료로 나감' },
+    { role: '인테리어', name: nm(site.interior), active: !interiorOver, leftNote: '설계 업무 완료로 나감' },
+  ].filter(m => m.name && m.name !== '-');
+}
+function renderMembers(rec, accounts) {
+  const ms = chatMembers(rec);
+  if (!ms.length) return '<span class="sub">지정된 담당자가 없습니다</span>';
+  return ms.map(m => {
+    const acc = accounts ? accounts[m.name] : undefined;
+    const note = !m.active ? m.leftNote : acc === false ? '앱 미가입' : '';
+    return `<span class="mem ${m.active ? 'on' : 'off'}" title="${m.active ? '참여 중' : esc(m.leftNote)}"><span class="dot"></span><span class="rl">${m.role}</span><span class="nm">${esc(m.name)}</span>${note ? `<span class="note">· ${esc(note)}</span>` : ''}</span>`;
+  }).join('');
+}
+async function refreshMembers(rec) {
+  const names = chatMembers(rec).map(m => m.name);
+  if (!names.length) return;
+  const { data } = await sb.rpc('staff_accounts', { p_names: names });
+  const el = $('#members'); if (!el || S.chat.bmKey !== rec.site.bm_key) return;
+  el.innerHTML = renderMembers(rec, Object.fromEntries((data || []).map(r => [r.name, r.approved])));
+}
 async function refreshUnread() {
   if (!S.user) return;
   const { data, error } = await sb.rpc('unread_counts');
@@ -715,7 +749,8 @@ function renderDetail(key) {
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
     </div>
     <div>
-      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 영업·설계·인테리어 담당자만 볼 수 있어요</span></h3>
+      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
+        <div class="members" id="members">${renderMembers(rec)}</div>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
         <div class="chat-in">
           <button class="btn sm icon" id="attBtn" title="사진·파일 첨부 (파일당 10MB)">📎</button>
@@ -743,6 +778,7 @@ function renderDetail(key) {
   </div>`;
   window.scrollTo(0, 0);
   openChat(site);
+  refreshMembers(rec);
 }
 
 // ----- 관리자 관리 (소유자) -----
