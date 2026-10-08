@@ -17,7 +17,7 @@
     --bg:#f4f6fa; --card:#fff; --line:#e3e8f0; --text:#1f2a3a; --mute:#6b7788;
     --navy:#2f4f85; --navy-d:#1f3a5f; --head:#e4ecf7; --green:#5b8a6e; --green-l:#8fbf9f;
     --gray:#b4bcc8; --amber:#e8b765; --red:#c86b6b; --radius:12px;
-    --talk-y:#FFE9A8; --ink:#1b1b1b;   /* 공간 Talk 탭: 파스텔 노랑 · 검정 (로고 노란색 #FBC600을 연하게) */
+    --talk-y:#FFCC5C; --ink:#1b1b1b;   /* 공간 Talk 탭: 앰버 · 검정 (로고 노란색 #FBC600 계열, 카카오톡 노랑과 구분) */
   }
   * { box-sizing:border-box; }
   html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif; font-size:15px; line-height:1.5; }
@@ -216,11 +216,11 @@
   .ptabs button { flex:1; border:1px solid var(--line); background:var(--card); padding:8px; border-radius:10px; font-weight:600; color:var(--mute); }
   .ptabs button.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .ptabs button.on .ubadge { background:#fff; color:var(--navy-d); }
-  /* 공간 Talk 탭: 평소엔 다른 탭처럼 흰 버튼, 넘어가 보고 있을 때만 파스텔 노랑 + 로고처럼 굵은 검정 테두리 */
+  /* 공간 Talk 탭: 평소엔 다른 탭처럼 흰 버튼, 넘어가 보고 있을 때만 앰버 + 로고처럼 굵은 검정 테두리(5px) */
   .ptabs button { transition:background .2s, border-color .2s, color .2s; }
   .ptabs button.talk-tab { display:inline-flex; align-items:center; justify-content:center; gap:4px; }
   .ptabs button.talk-tab .ubadge { margin-left:2px; }
-  .ptabs button.talk-tab.on { background:var(--talk-y); border:2.5px solid var(--ink); padding:6.5px; color:var(--ink); }
+  .ptabs button.talk-tab.on { background:var(--talk-y); border:5px solid var(--ink); padding:4px; color:var(--ink); }
   .ptabs button.talk-tab.on .ubadge { background:var(--ink); color:var(--talk-y); }
   /* ---- 제보 ---- */
   .fb { padding:10px 0; border-bottom:1px dashed var(--line); font-size:14px; } .fb:last-child { border-bottom:0; }
