@@ -129,6 +129,19 @@
     .tbl-scroll table.list td { padding:8px 10px; border-bottom:1px solid var(--line); }
   }
 
+  /* ---- 대화·배지 ---- */
+  .ubadge { display:inline-block; margin-left:6px; padding:0 7px; border-radius:9px; background:var(--amber); color:#5a4310; font-size:12px; font-weight:700; vertical-align:middle; }
+  .tog { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--mute); cursor:pointer; white-space:nowrap; }
+  .chat .msgs { max-height:380px; overflow:auto; display:flex; flex-direction:column; gap:8px; padding:4px 2px; }
+  .msg { max-width:90%; align-self:flex-start; } .msg.mine { align-self:flex-end; text-align:right; }
+  .msg .meta { font-size:11px; color:var(--mute); margin-bottom:2px; } .msg .meta .r { background:var(--head); color:var(--navy-d); border-radius:6px; padding:0 5px; }
+  .msg .b { display:inline-block; background:#f1f4f9; border-radius:12px; padding:8px 12px; font-size:14px; text-align:left; word-break:break-word; }
+  .msg.mine .b { background:var(--navy); color:#fff; }
+  .msg .del { border:0; background:transparent; color:var(--mute); cursor:pointer; font-size:13px; padding:0 2px; }
+  .day { text-align:center; font-size:11px; color:var(--mute); margin:6px 0 2px; }
+  .chat-in { display:flex; gap:6px; margin-top:8px; align-items:flex-end; }
+  .chat-in textarea { flex:1; resize:none; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font:inherit; line-height:1.4; }
+
   /* ---- 관리자 관리 ---- */
   table.list td select { padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
   .saved { color:var(--green); font-size:12px; margin-left:6px; }
@@ -201,6 +214,9 @@ const toStage = i => ({ 'BM KEY': i.bm_key, 'PROCESS': i.process, 'STAGE KEY': i
 const S = { user:null, me:null, sites:[], itemsBy:{}, staff:{}, computed:[], lastSync:null, users:[], nameOptions:[], filter:{ q:'', stage:'', state:'', track:'', person:'', sort:'ship' },
   table: { on:false, cols:new Set(['issue_name','owner_name','phones','bm_state','stage','cost_pct','manager']), selected:new Set() } };
 S.filter.dateField = 'contract_date'; S.filter.from = ''; S.filter.to = '';
+S.filter.showDone = false; S.filter.unreadOnly = false;      // 담당자: 완료된 현장 보기 / 새 메시지 있는 현장만
+S.unread = {};                                                // bm_key → 안 읽은 메시지 수
+S.chat = { bmKey: null, messages: [], timer: null };
 const DATE_FIELDS = [['contract_date','계약일'],['start_date','착공일'],['ship_date','상차일'],['movein_date','희망입주일']];
 
 // ---------- 라우팅 ----------
@@ -256,6 +272,7 @@ async function loadData() {
   }
   S.itemsBy = {};
   for (const it of items) (S.itemsBy[it.bm_key] ||= []).push(toStage(it));
+  await refreshUnread();
   recompute();
   $('#syncInfo').textContent = S.lastSync ? `DB 갱신 ${fmtTime(S.lastSync.finished_at || S.lastSync.started_at)}` : '';
 }
@@ -269,6 +286,7 @@ window.__dbg = { S, recompute, toStage, renderList: () => renderList(), renderDe
 function render() {
   if (!S.user || !S.me || !['manager','master','owner'].includes(S.me.role)) return;
   const h = location.hash || '#sites';
+  if (!h.startsWith('#site/')) closeChat();
   $('#navSites').classList.toggle('on', h.startsWith('#sites') || h.startsWith('#site/'));
   $('#navUsers').classList.toggle('on', h.startsWith('#users'));
   if (h.startsWith('#site/')) renderDetail(decodeURIComponent(h.slice(6)));
@@ -320,6 +338,7 @@ function renderList() {
       <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
       <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : '📋 표 만들기'}</button>
+      ${S.me.role === 'manager' ? `<label class="tog"><input type="checkbox" id="fShowDone" ${f.showDone ? 'checked' : ''}> 완료된 현장 보기 <span id="hiddenN" class="sub"></span></label>` : ''}
     </div>
     <div class="tools range">
       <select id="fDateField">${DATE_FIELDS.map(([k, l]) => `<option value="${k}" ${f.dateField === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -336,6 +355,8 @@ function renderList() {
   $('#fPerson').onchange = e => { f.person = e.target.value; renderRows(); };
   $('#fSort').onchange = e => { f.sort = e.target.value; renderRows(); };
   $('#tblToggle').onclick = () => { S.table.on = !S.table.on; renderList(); };
+  const sd = $('#fShowDone'); if (sd) sd.onchange = () => { f.showDone = sd.checked; renderRows(); };
+  refreshUnread().then(() => { if (!S.chat.bmKey && document.getElementById('results')) renderRows(); });
   const dateChanged = () => { f.dateField = $('#fDateField').value; f.from = $('#fFrom').value; f.to = $('#fTo').value; $('#fDateClear').disabled = !(f.from || f.to); renderRows(); };
   $('#fDateField').onchange = dateChanged; $('#fFrom').onchange = dateChanged; $('#fTo').onchange = dateChanged;
   $('#fDateClear').onclick = () => { $('#fFrom').value = ''; $('#fTo').value = ''; dateChanged(); };
@@ -351,7 +372,9 @@ function renderRows() {
   const f = S.filter;
   const q = f.q.trim().toLowerCase();
   // base = 단계 칩을 제외한 모든 필터를 통과한 현장 → 칩의 숫자는 이 기준으로 (필터 걸면 숫자도 같이 바뀜)
-  const base = S.computed.filter(({ site, c }) =>
+  const hiddenN = S.me.role === 'manager' ? S.computed.filter(hiddenForMe).length : 0;
+  const hn = $('#hiddenN'); if (hn) hn.textContent = hiddenN ? `(${hiddenN})` : '';
+  const base = S.computed.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key])).filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
     && (!f.state || site.bm_state === f.state)
     && (!f.track || (c && c.track === f.track))
@@ -363,19 +386,22 @@ function renderRows() {
   rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
   const stageCount = {}; for (const { c } of base) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
   const chips = STAGE_DEFS.filter(d => stageCount[d.id] || f.stage === d.id).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id] || 0}</b></button>`).join('');
-  $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}`;
+  const unreadSites = Object.keys(S.unread).filter(k => S.unread[k] > 0).length;
+  const unreadChip = unreadSites || f.unreadOnly ? `<button class="chip ${f.unreadOnly ? 'on' : ''}" data-unread="1">💬 새 메시지<b>${unreadSites}</b></button>` : '';
+  $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}${unreadChip}`;
   $('#count').textContent = `${rows.length}개 현장`;
-  if (S.table.on) { renderTable(rows); document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); }); return; }
+  const bindChips = () => document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { if (b.dataset.unread) f.unreadOnly = !f.unreadOnly; else f.stage = b.dataset.stage; renderRows(); });
+  if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${S.unread[site.bm_key] ? `<span class="ubadge">💬 ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
         <td class="hide-m">${fmtDate(site.ship_date)}</td>
         <td class="hide-m sub">영업 ${esc(site.manager || '-')} · 설계 ${esc(site.designer || '-')} · 인테리어 ${esc(site.interior || '-')}</td>
       </tr>`).join('')}</tbody></table>` : `<div class="card empty">조건에 맞는 현장이 없습니다.</div>`;
-  document.querySelectorAll('#chips .chip').forEach(b => b.onclick = () => { f.stage = b.dataset.stage; renderRows(); });
+  bindChips();
   document.querySelectorAll('tr[data-key]').forEach(tr => tr.onclick = () => go('#site/' + encodeURIComponent(tr.dataset.key)));
 }
 
@@ -489,6 +515,81 @@ function renderTable(rows) {
 }
 Object.assign(window.__dbg, { buildTSV, COLS, tableRows });
 
+// ----- 담당자 기본 숨김 규칙 -----
+// 설계 담당 = 실시도면 완료되면 숨김 / 인테리어 담당 = 설계(AD) 업무 전체 완료되면 숨김 / 영업 = 항상 표시
+// 권한이 아니라 기본 필터 — "완료된 현장 보기"로 언제든 볼 수 있음. 소유자·마스터는 적용 안 함.
+function myRolesOn(site) {
+  const me = (S.me?.staff_name || '').trim(); if (!me) return [];
+  const r = [];
+  if ((site.manager || '').trim() === me) r.push('영업');
+  if ((site.designer || '').trim() === me) r.push('설계');
+  if ((site.interior || '').trim() === me) r.push('인테리어');
+  return r;
+}
+function adAllDone(bmKey) {
+  const ad = (S.itemsBy[bmKey] || []).filter(i => i.PROCESS === 'AD' && !E.isSkipped(i.STATE));
+  return ad.length > 0 && ad.every(i => E.isDone(i.STATE));
+}
+function hiddenForMe(rec) {
+  if (!S.me || S.me.role !== 'manager') return false;
+  const roles = myRolesOn(rec.site); if (!roles.length) return false;
+  const show = roles.some(r => r === '영업'
+    || (r === '설계' && !(rec.c && rec.c.groupStatus.shimDo === 'done'))
+    || (r === '인테리어' && !adAllDone(rec.site.bm_key)));
+  return !show;
+}
+
+// ----- 현장 대화 (직원 간) -----
+async function refreshUnread() {
+  if (!S.user) return;
+  const { data, error } = await sb.rpc('unread_counts');
+  if (!error) S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)]));
+}
+function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; }
+async function openChat(site) {
+  closeChat(); S.chat.bmKey = site.bm_key;
+  const load = async () => {
+    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, body, created_at').eq('bm_key', site.bm_key).order('created_at').limit(300);
+    if (S.chat.bmKey !== site.bm_key) return;
+    S.chat.messages = data || []; renderMsgs(error);
+    if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
+    sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
+  };
+  await load();
+  S.chat.timer = setInterval(load, 20000);
+  const inp = $('#msgInp'); if (!inp) return;
+  const send = async () => {
+    const body = inp.value.trim(); if (!body) return;
+    inp.disabled = true; $('#msgSend').disabled = true;
+    const { error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], body });
+    inp.disabled = false; $('#msgSend').disabled = false;
+    if (error) { alert('전송 실패: ' + error.message); return; }
+    inp.value = ''; await load(); inp.focus();
+  };
+  $('#msgSend').onclick = send;
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+}
+function renderMsgs(error) {
+  const el = $('#msgs'); if (!el) return;
+  if (error) { el.innerHTML = `<div class="err">대화를 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
+  if (!S.chat.messages.length) { el.innerHTML = '<div class="sub" style="text-align:center;padding:14px">아직 메시지가 없습니다. 첫 메시지를 남겨 보세요.</div>'; return; }
+  let lastDay = '';
+  el.innerHTML = S.chat.messages.map(m => {
+    const d = new Date(m.created_at);
+    const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
+    const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
+    const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
+    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div><div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div></div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+  el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('이 메시지를 삭제할까요?')) return;
+    const { error } = await sb.from('site_messages').delete().eq('id', b.dataset.del);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
+    S.chat.messages = S.chat.messages.filter(m => String(m.id) !== b.dataset.del); renderMsgs();
+  });
+}
+
 // ----- 현장 상세 -----
 const stateCls = st => E.isSkipped(st) ? 'skip' : E.isDone(st) ? 'ok' : E.isActive(st) ? 'now' : '';
 function renderDetail(key) {
@@ -529,7 +630,11 @@ function renderDetail(key) {
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
     </div>
     <div>
-      <div class="card"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공사비</h3>
+      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">현장 대화 <span class="sub" style="font-weight:400">· 영업·설계·인테리어 담당자만 볼 수 있어요</span></h3>
+        <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
+        <div class="chat-in"><textarea id="msgInp" rows="2" maxlength="2000" placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea><button class="btn primary sm" id="msgSend">보내기</button></div>
+      </div>
+      <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공사비</h3>
         <dl class="kv"><dt>총액</dt><dd>${won(site.cost_total)}</dd><dt>수금액</dt><dd>${won(site.cost_paid)} <span class="sub">(${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) : '-'}%)</span></dd></dl>
         ${pay ? `<div class="pay" style="margin-top:10px">${pay.items.map(i => `<div class="b ${i.status}"><div class="l">${i.label} ${Math.round(i.ratio * 100)}%</div><div class="v">${i.status === 'done' ? '완료' : i.status === 'partial' ? '일부' : '대기'}</div><div class="sub">${won(i.planned)}</div></div>`).join('')}</div>` : ''}
         ${site.design_total ? `<dl class="kv" style="margin-top:12px"><dt>설계비</dt><dd>${won(site.design_total)} · 수금 ${won(site.design_paid)} (${site.design_pct != null ? Number(site.design_pct).toFixed(0) : '-'}%)</dd></dl>` : ''}
@@ -545,6 +650,7 @@ function renderDetail(key) {
     </div>
   </div>`;
   window.scrollTo(0, 0);
+  openChat(site);
 }
 
 // ----- 관리자 관리 (소유자) -----
