@@ -389,7 +389,7 @@ window.signOut = async () => { await pushForget(); await sb.auth.signOut(); loca
 async function loadData() {
   const [sitesRes, staffRes, runRes, roleRes] = await Promise.all([
     sb.from('sites').select('*').order('issue_name'),
-    sb.from('staff').select('name, phone'),
+    sb.from('staff').select('name, phone, role'),
     sb.from('sync_runs').select('started_at, finished_at, sites, items').order('id', { ascending:false }).limit(1),
     sb.rpc('role_accounts'),
   ]);
@@ -403,6 +403,9 @@ async function loadData() {
     S.openFb = f || 0; setBadge((p || 0) + S.openFb);
   }
   S.staff = Object.fromEntries((staffRes.data || []).map(r => [r.name, r.phone]));
+  // 공무·PM 이름: Staff 시트에서 역할이 '공무'·'PM'인 사람 (각 1명) — 대화 호출 버튼에 표시
+  const roleName = role => ((staffRes.data || []).find(r => String(r.role || '').trim().toUpperCase() === role) || {}).name || '';
+  S.roleName = { '공무': roleName('공무'), 'PM': roleName('PM') };
   S.lastSync = runRes.data?.[0] || null;
   // 세부공정: 1,000행씩 페이지로 전부 읽기 (RLS가 담당 현장 것만 돌려줌)
   const items = [];
@@ -698,10 +701,10 @@ function hiddenForMe(rec) {
 // 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
 // 공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
-//  공무: 공장 생산 단계부터 (현장 시공 트랙은 같은 자리의 '현장 시공' 단계부터)
+//  공무: 인테리어 단계부터 (자재관리를 공무가 하므로 인테리어 선정부터 참여) — 두 트랙 공통
 //  PM  : 잔금 단계부터 (현장 시공 트랙은 '잔금 · 준공' 단계부터)
 const CALL_GATE = {
-  '공무': { from: ['factory', 'sitebuild'], need: '공장 생산 단계부터' },
+  '공무': { from: ['interior'],             need: '인테리어 단계부터' },
   'PM':   { from: ['final', 'complete'],    need: '잔금 단계부터' },
 };
 function callOpen(rec, role) {
@@ -795,9 +798,9 @@ async function openChat(site) {
     T.innerHTML = `<span>받는 사람</span><button class="chip ${S.chat.target ? '' : 'on'}" data-t="">전체</button>` +
       ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : m.name + ' 호출'}">${ic('call')} ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('') +
       // 공무·PM: 현장 담당자가 아닌 계정 역할 전원 호출 — 공정 단계가 되어야 열림(CALL_GATE)
-      [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; const open = callOpen(rec, r);
-        const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : n ? `${r} 전원(${n}명) 호출` : `${r} 계정이 없어요`;
-        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}</button>`; }).join('');
+      [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; const open = callOpen(rec, r); const nm = (S.roleName || {})[r] || '';
+        const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : !n ? `${r} 역할 앱 계정이 없어 호출을 받을 사람이 없어요` : `${nm || r} 호출`;
+        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('');
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
