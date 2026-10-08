@@ -701,15 +701,19 @@ function hiddenForMe(rec) {
 // 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
 // 공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
-//  공무: 인테리어 단계부터 (자재관리를 공무가 하므로 인테리어 선정부터 참여) — 두 트랙 공통
+//  공무: 인테리어 단계부터 잔금 전까지 (자재관리를 공무가 하므로 인테리어 선정부터 참여, 잔금부터는 PM 몫) — 두 트랙 공통
 //  PM  : 잔금 단계부터 (현장 시공 트랙은 '잔금 · 준공' 단계부터)
+//  from: 이 단계부터 켜짐 / until: 이 단계부터 다시 꺼짐 (트랙마다 있는 id만 적용)
 const CALL_GATE = {
-  '공무': { from: ['interior'],             need: '인테리어 단계부터' },
-  'PM':   { from: ['final', 'complete'],    need: '잔금 단계부터' },
+  '공무': { from: ['interior'],          until: ['final', 'complete'], need: '인테리어 단계부터 잔금 전까지' },
+  'PM':   { from: ['final', 'complete'], until: [],                    need: '잔금 단계부터' },
 };
 function callOpen(rec, role) {
   const c = rec && rec.c; const g = CALL_GATE[role]; if (!c || !g) return false;
-  return g.from.some(id => { const i = c.stages.findIndex(st => st.id === id); return i >= 0 && c.current >= i; });
+  const at = id => c.stages.findIndex(st => st.id === id);
+  const started = g.from.some(id => { const i = at(id); return i >= 0 && c.current >= i; });
+  const ended = g.until.some(id => { const i = at(id); return i >= 0 && c.current >= i; });
+  return started && !ended;
 }
 function chatMembers(rec) {
   const site = rec.site, c = rec.c;
