@@ -17,6 +17,7 @@
     --bg:#f4f6fa; --card:#fff; --line:#e3e8f0; --text:#1f2a3a; --mute:#6b7788;
     --navy:#2f4f85; --navy-d:#1f3a5f; --head:#e4ecf7; --green:#5b8a6e; --green-l:#8fbf9f;
     --gray:#b4bcc8; --amber:#e8b765; --red:#c86b6b; --radius:12px;
+    --brand-y:#FBC600; --ink:#1b1b1b;   /* 로고 노란색 · 검정 (공간 Talk 버튼) */
   }
   * { box-sizing:border-box; }
   html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif; font-size:15px; line-height:1.5; }
@@ -215,6 +216,10 @@
   .ptabs button { flex:1; border:1px solid var(--line); background:var(--card); padding:8px; border-radius:10px; font-weight:600; color:var(--mute); }
   .ptabs button.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .ptabs button.on .ubadge { background:#fff; color:var(--navy-d); }
+  /* 공간 Talk 탭: 로고 노란색 + 검정 테두리. 보고 있을 때는 테두리를 굵게 */
+  .ptabs button.talk-tab, .ptabs button.talk-tab.on { display:inline-flex; align-items:center; justify-content:center; gap:4px; background:var(--brand-y); border:1.5px solid var(--ink); color:var(--ink); }
+  .ptabs button.talk-tab.on { box-shadow:inset 0 0 0 1.5px var(--ink); }
+  .ptabs button.talk-tab .ubadge { background:var(--ink); color:var(--brand-y); margin-left:2px; }
   /* ---- 제보 ---- */
   .fb { padding:10px 0; border-bottom:1px dashed var(--line); font-size:14px; } .fb:last-child { border-bottom:0; }
   .fb .meta { font-size:12px; color:var(--mute); margin-bottom:4px; }
@@ -919,7 +924,7 @@ function renderDetail(key) {
   }).join('') : '<div class="sub">판정 불가</div>';
   const pay = c ? c.payment : null;
   $('#main').innerHTML = `<button class="btn sm back" onclick="history.length > 1 ? history.back() : go('#sites')">← 목록</button>
-  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1">${ic('msg')} 공간 Talk${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
+  <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1" class="talk-tab">${ic('msg')} 공간 Talk${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
   <div class="grid" id="grid">
     <div>
       <div class="card">
