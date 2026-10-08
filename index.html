@@ -164,6 +164,9 @@
   .chan button[data-c="owner"].on { background:var(--talk-y); border-color:var(--talk-y); color:var(--ink); }
   .chat.owner-ch .msgs { background:#fff8e6; border-radius:10px; padding:6px 4px; }
   .chat .chan-note { font-size:12px; color:#8a5a14; margin:-2px 0 8px; }
+  .chat .msgs.slide-l { animation:tkSlideL .22s ease-out; } .chat .msgs.slide-r { animation:tkSlideR .22s ease-out; }
+  @keyframes tkSlideL { from { transform:translateX(32px); opacity:.25; } to { transform:none; opacity:1; } }
+  @keyframes tkSlideR { from { transform:translateX(-32px); opacity:.25; } to { transform:none; opacity:1; } }
   .msg .meta .r.owner { background:var(--talk-y); color:var(--ink); }
   .msg .call-tag { display:inline-block; background:#fbeaea; color:#7a2e2e; border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; margin-bottom:3px; }
   .msg.mine .call-tag { background:#fbeaea; }
@@ -839,8 +842,10 @@ async function openChat(site) {
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
-  // 채널 전환: 공간 Talk를 연 현장만 '내부 대화 | 건축주와 대화'
+  // 채널 전환: 공간 Talk를 연 현장만. 화면 순서 = 건축주톡(왼쪽) | 내부톡(오른쪽)
+  //  휴대폰: 공간 Talk 칸 안에서 옆으로 밀면 톡 전환, 건축주톡에서 손가락을 오른쪽으로 밀면 바깥(현장 정보)으로 넘어감
   const chan = $('#chan');
+  const CH_ORDER = ['owner', 'staff'];
   const applyChannel = () => {
     const owner = S.chat.channel === 'owner';
     $('.chat')?.classList.toggle('owner-ch', owner);
@@ -849,14 +854,31 @@ async function openChat(site) {
     $('#chatScope').textContent = owner ? '· 건축주도 함께 봐요' : '· 담당자만 볼 수 있어요';
     inp.placeholder = owner ? '건축주에게 보이는 메시지' : touch ? '메시지 입력' : '메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)';
   };
+  const switchChannel = async c => {
+    if (S.chat.channel === c) return;
+    const toRight = CH_ORDER.indexOf(c) > CH_ORDER.indexOf(S.chat.channel);
+    S.chat.channel = c; S.chat.target = null; S.chat.messages = [];
+    applyChannel(); renderTargets();
+    const m = $('#msgs'); m.innerHTML = '<div class="sub">불러오는 중…</div>';
+    m.classList.remove('slide-l', 'slide-r'); void m.offsetWidth; m.classList.add(toRight ? 'slide-l' : 'slide-r');
+    await load();
+  };
   if (talkOpen(site) && chan) {
     chan.classList.remove('hidden');
-    chan.querySelectorAll('button[data-c]').forEach(b => b.onclick = async () => {
-      if (S.chat.channel === b.dataset.c) return;
-      S.chat.channel = b.dataset.c; S.chat.target = null; S.chat.messages = [];
-      applyChannel(); renderTargets(); $('#msgs').innerHTML = '<div class="sub">불러오는 중…</div>';
-      await load();
-    });
+    chan.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => switchChannel(b.dataset.c));
+    // 가로 스와이프: 첫 움직임에서 방향을 정함. 옆에 톡이 있으면 톡 전환(바깥 스크롤 막음), 없으면 바깥 스와이프에 맡김
+    const card = $('.card.chat'); let sx = 0, sy = 0, mode = null, next = null;
+    card.addEventListener('touchstart', e => { mode = e.touches.length === 1 ? null : 'v'; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    card.addEventListener('touchmove', e => {
+      if (mode) { if (mode === 'talk' && e.cancelable) e.preventDefault(); return; }
+      const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { mode = 'v'; return; }              // 세로: 대화 목록 스크롤
+      const i = CH_ORDER.indexOf(S.chat.channel) + (dx < 0 ? 1 : -1);       // 손가락 왼쪽 → 오른쪽 톡 / 오른쪽 → 왼쪽 톡
+      if (i >= 0 && i < CH_ORDER.length) { mode = 'talk'; next = CH_ORDER[i]; if (e.cancelable) e.preventDefault(); }
+      else mode = 'pass';                                                     // 끝 톡: 바깥(현장 정보 ↔ 공간 Talk)으로
+    }, { passive: false });
+    card.addEventListener('touchend', e => { if (mode === 'talk' && Math.abs(e.changedTouches[0].clientX - sx) > 40) switchChannel(next); mode = null; }, { passive: true });
   }
   applyChannel();
   const attInp = $('#attInp');
@@ -985,7 +1007,7 @@ function renderDetail(key) {
     </div>
     <div>
       <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">공간 Talk <span class="sub" id="chatScope" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
-        <div class="chan hidden" id="chan"><button data-c="staff" class="on">내부 대화</button><button data-c="owner">${ic('msg')} 건축주와 대화</button></div>
+        <div class="chan hidden" id="chan"><button data-c="owner">${ic('msg')} 건축주톡</button><button data-c="staff" class="on">내부톡</button></div>
         <div class="chan-note hidden" id="chanNote">여기 쓰는 메시지와 첨부는 건축주 앱에도 보여요.</div>
         <div class="members" id="members">${renderMembers(rec)}</div>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
