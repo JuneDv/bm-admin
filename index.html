@@ -157,6 +157,14 @@
   .targets .chip { padding:2px 9px; font-size:12px; } .targets .chip.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .targets .chip:disabled { opacity:.45; cursor:default; }
   .targets .chip .soon { margin-left:4px; font-size:10px; font-weight:700; color:#8a5a14; background:#fbefd9; border-radius:6px; padding:0 5px; }
+  /* 공간 Talk 채널: 내부 대화 / 건축주와 대화 (공간 Talk를 연 현장만) */
+  .chan { display:flex; gap:6px; margin:0 0 8px; }
+  .chan button { flex:1; border:1px solid var(--line); background:var(--card); padding:7px 8px; border-radius:10px; font-size:13px; font-weight:600; color:var(--mute); }
+  .chan button.on { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .chan button[data-c="owner"].on { background:var(--talk-y); border-color:var(--talk-y); color:var(--ink); }
+  .chat.owner-ch .msgs { background:#fff8e6; border-radius:10px; padding:6px 4px; }
+  .chat .chan-note { font-size:12px; color:#8a5a14; margin:-2px 0 8px; }
+  .msg .meta .r.owner { background:var(--talk-y); color:var(--ink); }
   .msg .call-tag { display:inline-block; background:#fbeaea; color:#7a2e2e; border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; margin-bottom:3px; }
   .msg.mine .call-tag { background:#fbeaea; }
   .tog { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--mute); cursor:pointer; white-space:nowrap; }
@@ -395,13 +403,15 @@ window.signOut = async () => { await pushForget(); await sb.auth.signOut(); loca
 
 // ---------- 데이터 ----------
 async function loadData() {
-  const [sitesRes, staffRes, runRes, roleRes] = await Promise.all([
+  const [sitesRes, staffRes, runRes, roleRes, talkRes] = await Promise.all([
     sb.from('sites').select('*').order('issue_name'),
     sb.from('staff').select('name, phone, role'),
     sb.from('sync_runs').select('started_at, finished_at, sites, items').order('id', { ascending:false }).limit(1),
     sb.rpc('role_accounts'),
+    sb.from('owner_talk_sites').select('bm_key'),
   ]);
   S.sites = sitesRes.data || [];
+  S.talkOpen = new Set((talkRes.data || []).map(r => r.bm_key));   // 건축주와 공간 Talk를 연 현장 (시범)
   S.roleAccounts = Object.fromEntries((roleRes.data || []).map(r => [r.role, Number(r.n)]));   // 공무·PM 계정 수 (호출 칩 활성용)
   if (S.me.role === 'owner') {
     const [{ count: p }, { count: f }] = await Promise.all([
@@ -705,11 +715,11 @@ function hiddenForMe(rec) {
   return !show;
 }
 
-// ----- 공간 Talk (현장 대화, 지금은 직원 간) -----
+// ----- 공간 Talk (현장 대화: 내부 = 직원끼리 / 건축주 = 건축주 앱과 함께) -----
 // 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
-// 건축주 호출: 건축주 앱 대화창이 열릴 때까지 '준비 중'으로 비활성. 열 때 true로
-const OWNER_CHAT_OPEN = false;
+// 건축주 대화: owner_talk_sites에 등록된 현장만 열림(시범). 그 외 현장은 '건축주 · 준비 중'
+const talkOpen = site => !!(S.talkOpen && S.talkOpen.has(site.bm_key));
 
 // 공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
 //  공무: 인테리어 단계부터 잔금 전까지 (자재관리를 공무가 하므로 인테리어 선정부터 참여, 잔금부터는 PM 몫) — 두 트랙 공통
@@ -782,10 +792,11 @@ async function shrinkImage(file, maxEdge = IMG_MAX_EDGE, quality = IMG_QUALITY) 
 }
 Object.assign(window.__dbg, { shrinkImage, renderMsgs: e => renderMsgs(e) });
 async function openChat(site) {
-  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {};
+  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {}; S.chat.channel = 'staff';
   const load = async () => {
-    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, target_role, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).order('created_at').limit(300);
-    if (S.chat.bmKey !== site.bm_key) return;
+    const ch = S.chat.channel;
+    const { data, error } = await sb.from('site_messages').select('id, user_id, sender_name, sender_role, target_role, call_owner, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key).eq('channel', ch).order('created_at').limit(300);
+    if (S.chat.bmKey !== site.bm_key || S.chat.channel !== ch) return;
     S.chat.messages = data || [];
     const paths = S.chat.messages.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
     if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = s.signedUrl; }); }
@@ -795,6 +806,12 @@ async function openChat(site) {
     if (S.calls[site.bm_key]) delete S.calls[site.bm_key];
     sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
   };
+  // 공간 Talk를 연 현장: 가장 최근 메시지가 있는 쪽(내부/건축주)으로 먼저 열기 — 건축주 메시지 알림을 눌러 들어온 경우 바로 보이게
+  if (talkOpen(site)) {
+    const { data: last } = await sb.from('site_messages').select('channel').eq('bm_key', site.bm_key).order('created_at', { ascending:false }).limit(1);
+    if (S.chat.bmKey !== site.bm_key) return;
+    if (last?.[0]?.channel === 'owner') S.chat.channel = 'owner';
+  }
   await load();
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
@@ -816,11 +833,32 @@ async function openChat(site) {
       [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; const open = callOpen(rec, r); const nm = (S.roleName || {})[r] || '';
         const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : !n ? `${r} 역할 앱 계정이 없어 호출을 받을 사람이 없어요` : `${nm || r} 호출`;
         return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('') +
-      // 건축주: 건축주 앱 대화창이 준비되면 활성 (지금은 '준비 중' 표시)
-      (OWNER_CHAT_OPEN ? '' : `<button class="chip" disabled title="건축주와의 공간 Talk는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`);
+      // 건축주: 공간 Talk를 연 현장의 '건축주와 대화'에서만 호출. 다른 현장은 '준비 중'
+      (!talkOpen(site) ? `<button class="chip" disabled title="건축주와의 공간 Talk는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`
+        : S.chat.channel === 'owner' ? `<button class="chip ${S.chat.target === '건축주' ? 'on' : ''}" data-t="건축주" title="건축주 호출">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}</button>` : '');
     T.querySelectorAll('button[data-t]').forEach(b => b.onclick = () => { S.chat.target = b.dataset.t || null; renderTargets(); inp.focus(); });
   };
   renderTargets();
+  // 채널 전환: 공간 Talk를 연 현장만 '내부 대화 | 건축주와 대화'
+  const chan = $('#chan');
+  const applyChannel = () => {
+    const owner = S.chat.channel === 'owner';
+    $('.chat')?.classList.toggle('owner-ch', owner);
+    chan?.querySelectorAll('button[data-c]').forEach(b => b.classList.toggle('on', b.dataset.c === S.chat.channel));
+    $('#chanNote')?.classList.toggle('hidden', !owner);
+    $('#chatScope').textContent = owner ? '· 건축주도 함께 봐요' : '· 담당자만 볼 수 있어요';
+    inp.placeholder = owner ? '건축주에게 보이는 메시지' : touch ? '메시지 입력' : '메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)';
+  };
+  if (talkOpen(site) && chan) {
+    chan.classList.remove('hidden');
+    chan.querySelectorAll('button[data-c]').forEach(b => b.onclick = async () => {
+      if (S.chat.channel === b.dataset.c) return;
+      S.chat.channel = b.dataset.c; S.chat.target = null; S.chat.messages = [];
+      applyChannel(); renderTargets(); $('#msgs').innerHTML = '<div class="sub">불러오는 중…</div>';
+      await load();
+    });
+  }
+  applyChannel();
   const attInp = $('#attInp');
   const renderPending = () => {
     const P = S.chat.pending;
@@ -857,7 +895,8 @@ async function openChat(site) {
       }
       if (!body && !uploaded.length) throw new Error('올라간 파일이 없어 메시지를 보내지 않았습니다');
       // 2) 메시지 저장
-      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], target_role: S.chat.target || null, body }).select('id').single();
+      const ch = S.chat.channel, callOwner = ch === 'owner' && S.chat.target === '건축주';
+      const { data: msg, error } = await sb.from('site_messages').insert({ bm_key: site.bm_key, channel: ch, user_id: S.me.id, sender_name: S.me.staff_name || S.me.google_name || S.me.email, sender_role: myRolesOn(site)[0] || ROLE_LABEL[S.me.role], target_role: callOwner ? null : (S.chat.target || null), call_owner: callOwner, body }).select('id').single();
       if (error) { if (uploaded.length) await sb.storage.from(BUCKET).remove(uploaded.map(u => u.path)); throw error; }
       S.chat.target = null; renderTargets();
       // 3) 파일 메타 저장
@@ -890,7 +929,7 @@ function renderMsgs(error) {
     const day = d.toLocaleDateString('ko-KR', { timeZone:'Asia/Seoul', month:'long', day:'numeric', weekday:'short' });
     const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : ''; lastDay = day;
     const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
-    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role ? `<div><span class="call-tag">${ic('call')} ${esc(m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
+    return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r ${m.sender_role === '건축주' ? 'owner' : ''}">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role || m.call_owner ? `<div><span class="call-tag">${ic('call')} ${esc(m.call_owner ? '건축주' : m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
@@ -945,7 +984,9 @@ function renderDetail(key) {
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
     </div>
     <div>
-      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">공간 Talk <span class="sub" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
+      <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">공간 Talk <span class="sub" id="chatScope" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
+        <div class="chan hidden" id="chan"><button data-c="staff" class="on">내부 대화</button><button data-c="owner">${ic('msg')} 건축주와 대화</button></div>
+        <div class="chan-note hidden" id="chanNote">여기 쓰는 메시지와 첨부는 건축주 앱에도 보여요.</div>
         <div class="members" id="members">${renderMembers(rec)}</div>
         <div class="msgs" id="msgs"><div class="sub">불러오는 중…</div></div>
         ${site.archived_at ? `<div class="notice" style="margin-top:8px">보관된 현장이라 읽기만 할 수 있어요. 대화 기록은 보관 시작일로부터 5년간 유지됩니다.</div>` : ''}
@@ -1136,7 +1177,7 @@ async function renderNotify() {
 // ----- 관리자 관리 (소유자) -----
 async function renderUsers() {
   const [{ data: users }, nameRes, usageRes, holRes, pushRes, fbRes] = await Promise.all([
-    sb.from('admin_users').select('*').order('created_at', { ascending:false }),
+    sb.from('admin_users').select('*').not('email', 'ilike', '%@owner.invalid').order('created_at', { ascending:false }),   // 건축주 계정(공간 Talk)은 직원 목록에서 제외
     S.nameOptions.length ? Promise.resolve({ data: S.nameOptions }) : sb.rpc('staff_name_options'),
     sb.rpc('storage_usage'),
     sb.from('holidays').select('day, name').gte('day', new Date().toISOString().slice(0, 10)).order('day'),
