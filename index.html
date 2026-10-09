@@ -327,6 +327,13 @@ const FULL_ROLES = ['owner','admin','gongmu','pm','master'];
 const APPROVED_ROLES = ['manager', ...FULL_ROLES];
 const isApprovedRole = r => APPROVED_ROLES.includes(r);
 
+// 현장제작 = Jira 제작처 '현장'(예전 방식, COS 공정) 또는 프리패브 공법 '패널라이징'(최근 현장, 공정은 FC→IOS로 통일)
+// 진행 단계 판정(track)은 그대로 제작처 기준 — 여기는 분류(필터·표·태그)만
+const isSiteBuild = (site, c) => (c ? c.track === 'site' : /현장/.test(site.factory_type || '')) || site.prefab_method === '패널라이징';
+// 태그: 프리패브 공법 값 그대로(모듈러/패널라이징). 공법 값이 없는 예전 현장제작만 '현장제작'
+const trackTags = (site, c) => (site.prefab_method ? `<span class="tag${site.prefab_method === '패널라이징' ? ' site' : ''}">${esc(site.prefab_method)}</span>`
+  : isSiteBuild(site, c) ? '<span class="tag site">현장제작</span>' : '');
+
 // ---------- DB 행 → 판정 엔진 입력(시트 컬럼 형식) ----------
 const s = v => (v === null || v === undefined) ? '' : String(v);
 const toRow = r => ({
@@ -507,7 +514,7 @@ function renderList() {
     <div class="tools">
       <input type="search" id="q" placeholder="현장명 · 건축주 · BM키 · 주소 검색" value="${esc(f.q)}" autocomplete="off">
       <select id="fState"><option value="">BM 상태 전체</option>${states.map(x => `<option ${f.state === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-      <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장</option></select>
+      <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장 (패널라이징 포함)</option></select>
       <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
       <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : ic('table') + ' 표 만들기'}</button>
@@ -555,7 +562,7 @@ function renderRows() {
   const base = live.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key])).filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
     && (!f.state || site.bm_state === f.state)
-    && (!f.track || (c && c.track === f.track))
+    && (!f.track || (isSiteBuild(site, c) ? 'site' : 'factory') === f.track)
     && (!f.person || [site.manager, site.designer, site.interior].map(x => (x || '').trim()).includes(f.person))
     && inDateRange(site));
   let rows = base.filter(({ c }) => !f.stage || (c && c.currentId === f.stage));
@@ -574,7 +581,7 @@ function renderRows() {
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.prefab_method ? `<span class="tag">${esc(site.prefab_method)}</span>` : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -593,7 +600,7 @@ const COLS = [
   { id:'issue_name',   group:'현장',   label:'현장명',       get: r => r.site.issue_name || '' },
   { id:'bm_key',       group:'현장',   label:'BM키',         get: r => r.site.bm_key },
   { id:'site_address', group:'현장',   label:'주소',         get: r => r.site.site_address || '' },
-  { id:'track',        group:'현장',   label:'제작처',       get: r => r.c ? (r.c.track === 'site' ? '현장' : '공장') : (r.site.factory_type || '') },
+  { id:'track',        group:'현장',   label:'제작처',       get: r => isSiteBuild(r.site, r.c) ? '현장' : '공장' },
   { id:'prefab',       group:'현장',   label:'프리패브 공법', get: r => r.site.prefab_method || '' },
   { id:'bm_state',     group:'현장',   label:'BM 상태',      get: r => r.site.bm_state || '' },
   { id:'stage',        group:'현장',   label:'현재 단계',    get: r => r.c ? `${r.c.current + 1}/${r.c.stages.length} ${r.c.stages[r.c.current].title}` : '' },
@@ -992,7 +999,7 @@ function renderDetail(key) {
   <div class="grid" id="grid">
     <div>
       <div class="card">
-        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.prefab_method ? `<span class="tag">${esc(site.prefab_method)}</span>` : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
+        <div class="h"><div><h2>${esc(site.issue_name || key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}" target="_blank" rel="noopener">건축주 화면 보기</a>` : ''}</div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
