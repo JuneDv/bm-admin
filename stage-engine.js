@@ -154,6 +154,7 @@
     if (track === 'factory') {
       if (pay.pct >= 99 && (started(gs.ios) || (shipDate && shipDate <= today)))      cur = idx('install');
       else if (gs.fc === 'done' && pay.pct < 99)                                        cur = idx('final');
+      else if (gs.fc === 'done')                                                        cur = idx('install');   // 제작 끝·잔금 완료, 상차 기록만 아직 없음 → 상차·설치
       else if (started(gs.fc))                                                          cur = idx('factory');
       else                                                                              cur = earlyStage();
     } else {
