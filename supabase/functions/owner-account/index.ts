@@ -1,5 +1,6 @@
 // 건축주 계정 관리 (건축주 앱 '내 정보')
-//  POST { action: 'signout_others' } : 이 기기만 남기고 같은 계정의 다른 기기 접속 해제
+//  POST { action: 'signout_others' } : 이 기기만 남기고 같은 계정의 다른 기기 접속 해제 (그 기기들의 알림 등록·호칭도 정리)
+//  POST { action: 'signout_device', session_id } : 다른 기기 하나만 접속 해제 (세션 만료 + 그 기기의 알림 등록·호칭 정리)
 //  POST { action: 'delete' }         : 계정 삭제 — 이 번호로 접속한 모든 기기에서 해제
 //    · 지우는 것: 현장 연결(owner_sites), 알림 등록, 기기 호칭, 접속 기록, 건축주 정보(owner_users)
 //    · 대화 내용은 현장 기록이라 남기고 보낸 사람 이름만 '탈퇴한 건축주'로 바꿈
@@ -19,6 +20,11 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+// 토큰 안의 세션 번호 (이 기기)
+const sessionOf = (jwt: string): string | null => {
+  try { return JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).session_id ?? null; } catch { return null; }
+};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -29,12 +35,28 @@ Deno.serve(async (req: Request) => {
     if (eu || !user) return json({ error: "다시 접속해 주세요." }, 401);
     const { data: owner } = await admin.from("owner_users").select("user_id, phone").eq("user_id", user.id).maybeSingle();
     if (!owner) return json({ error: "건축주 계정이 아니에요." }, 403);
-    const { action } = await req.json().catch(() => ({}));
+    const { action, session_id } = await req.json().catch(() => ({}));
+    const mine = sessionOf(token);
 
     if (action === "signout_others") {
       const { error } = await admin.auth.admin.signOut(token, "others");
       if (error) throw error;
+      // 해제된 기기로 알림이 계속 가지 않게 (이 기기 것만 남김 — 기기 정보가 없는 예전 등록도 정리)
+      if (mine) {
+        await admin.from("push_subscriptions").delete().eq("user_id", user.id).or(`session_id.is.null,session_id.neq.${mine}`);
+        await admin.from("owner_session_prefs").delete().eq("user_id", user.id).neq("session_id", mine);
+      }
       return json({ ok: true });
+    }
+
+    if (action === "signout_device") {
+      if (!session_id || !UUID.test(String(session_id))) return json({ error: "bad request" }, 400);
+      if (session_id === mine) return json({ error: "이 기기는 '이 기기에서 로그아웃'으로 해제해 주세요." }, 400);
+      const { data: ok, error } = await admin.rpc("expire_owner_session", { p_user: user.id, p_session: session_id });
+      if (error) throw error;
+      await admin.from("push_subscriptions").delete().eq("user_id", user.id).eq("session_id", session_id);
+      await admin.from("owner_session_prefs").delete().eq("user_id", user.id).eq("session_id", session_id);
+      return json({ ok: true, expired: !!ok });
     }
 
     if (action === "delete") {
