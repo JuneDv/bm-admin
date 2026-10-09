@@ -89,6 +89,8 @@
   table.list tr:last-child td { border-bottom:0; }
   table.list tbody tr { cursor:pointer; } table.list tbody tr:hover { background:#f7f9fc; }
   .nm { font-weight:700; } .sub { color:var(--mute); font-size:12px; }
+  /* 목록: 마지막 대화 한 줄 (길면 … 로 자름) */
+  .last { color:var(--mute); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:420px; }
   .dots { display:inline-flex; gap:3px; vertical-align:middle; margin-right:8px; }
   .dots i { width:9px; height:9px; border-radius:50%; background:var(--gray); display:inline-block; }
   .dots i.d { background:var(--green-l); } .dots i.n { background:var(--amber); } .dots i.p { background:repeating-linear-gradient(45deg,var(--green-l) 0 2px,#fff 2px 4px); }
@@ -128,6 +130,14 @@
   .pay .b.done { background:#eef5f0; border-color:#cfe3d6; } .pay .b.partial { background:#fff7e3; border-color:#f1dfae; }
   .ct { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; } .ct:last-child { border-bottom:0; }
   .ct .lb { color:var(--mute); width:64px; } .ct a { margin-left:auto; }
+  /* 서류함: 종류별 묶음 · 이름(누르면 받기) · 크기·날짜·올린 사람 */
+  .docs .k { font-size:12px; font-weight:700; color:var(--mute); margin:10px 0 2px; } .docs .k:first-child { margin-top:0; }
+  .doc { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; } .doc:last-child { border-bottom:0; }
+  .doc .t { flex:1; min-width:0; }
+  .doc a { display:flex; align-items:center; gap:6px; color:var(--text); } .doc a span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc .sub { margin-left:calc(1.15em + 6px); }
+  .doc-up { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+  .doc-up select { padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
 
   /* ---- 표 만들기 ---- */
   .tbl-wrap { display:grid; grid-template-columns:1fr 250px; gap:12px; align-items:start; }
@@ -258,6 +268,7 @@
     table.list tr { border-bottom:1px solid var(--line); padding:8px 4px; }
     table.list td { border:0; padding:3px 8px; }
     table.list td.hide-m { display:none; }
+    .last { max-width:none; }
     .top nav button { padding:8px 8px; }
     .top .me span.email { display:none; }
   }
@@ -357,6 +368,7 @@ S.filter.showDone = false; S.filter.unreadOnly = false;      // 담당자: 완�
 S.filter.showArchived = false;                                // 보관(준공·종료) 현장 보기 — 기본 숨김, 5년 뒤 자동 삭제
 S.unread = {};                                                // bm_key → 안 읽은 메시지 수
 S.calls = {};                                                 // bm_key → 나를 호출한 안 읽은 메시지 수
+S.last = {};                                                  // bm_key → 마지막 메시지 {last_at, sender_name, channel, body, has_file}
 S.filter.callsOnly = false;
 S.chat = { bmKey: null, messages: [], timer: null, gen: 0 };   // gen: 대화를 열 때마다 1씩 — 늦게 끝난 load()가 다른 현장 타이머를 남기지 않게
 const DATE_FIELDS = [['contract_date','계약일'],['start_date','착공일'],['ship_date','상차일'],['movein_date','희망입주일']];
@@ -409,12 +421,12 @@ async function boot() {
   await afterAuth();
 }
 async function afterAuth() {
-  if (!S.user) { closeChat(); S.me = null; $('#top').classList.add('hidden'); renderLogin(); return; }   // 세션이 끊기면 대화 폴링도 멈춤
+  if (!S.user) { closeChat(); inboxOff(); S.me = null; $('#top').classList.add('hidden'); renderLogin(); return; }   // 세션이 끊기면 대화 폴링·실시간도 멈춤
   const { data: me, error } = await sb.from('admin_users').select('*').eq('id', S.user.id).maybeSingle();
   if (error || !me) { renderMsg('계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', true); return; }
   S.me = me;
   sb.rpc('touch_login').then(() => {});
-  if (!isApprovedRole(me.role)) { $('#top').classList.add('hidden'); await renderPending(); return; }
+  if (!isApprovedRole(me.role)) { inboxOff(); $('#top').classList.add('hidden'); await renderPending(); return; }
   $('#top').classList.remove('hidden');
   $('#meName').textContent = me.google_name || me.staff_name || '';
   $('#meEmail').textContent = me.email;
@@ -422,6 +434,7 @@ async function afterAuth() {
   $('#navUsers').classList.toggle('hidden', me.role !== 'owner');
   fitHeader();
   pushInit();
+  inboxOn();
   await loadData();
   if (!location.hash || location.hash === '#login') location.hash = '#sites';
   render();
@@ -430,7 +443,7 @@ window.signIn = async () => {
   const { error } = await sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + location.pathname } });
   if (error) renderMsg('로그인을 시작하지 못했습니다: ' + error.message, true);
 };
-window.signOut = async () => { closeChat(); await pushForget(); await sb.auth.signOut(); location.hash = ''; };
+window.signOut = async () => { closeChat(); inboxOff(); await pushForget(); await sb.auth.signOut(); location.hash = ''; };
 
 // ---------- 데이터 ----------
 async function loadData() {
@@ -491,9 +504,37 @@ async function syncList() {
   catch (e) { console.warn('목록 갱신 실패', e); }
   finally { listSyncing = false; }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncList(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { syncList(); rtRevive(); } });
 window.addEventListener('focus', () => syncList());
 setInterval(() => { if (onListView()) syncList(); }, 60000);
+
+// ---------- 실시간 ----------
+// 실시간(새 메시지가 저장되면 서버가 바로 보내 줌) + 폴링은 끊겼을 때 대비. 연결에 실패해도 폴링으로 계속 동작
+// 채널 이름에 번호를 붙임 — 같은 이름이면 supabase가 아직 닫히는 중인 예전 채널을 그대로 돌려줌
+let rtSeq = 0;
+function rtOn(name, subs, cb) {
+  try {
+    let ch = sb.channel(`${name}-${++rtSeq}`);
+    for (const [table, filter] of subs) ch = ch.on('postgres_changes', { event:'INSERT', schema:'public', table, ...(filter ? { filter } : {}) }, cb);
+    return ch.subscribe();
+  } catch (e) { console.warn('실시간 연결 실패', e); return null; }
+}
+const rtOff = ch => { if (ch) Promise.resolve().then(() => sb.removeChannel(ch)).catch(() => {}); };
+// 앱 전체 'inbox': 보이는 현장(RLS)에 새 메시지가 오면 1초 모아서 목록 갱신 (내가 보낸 건 무시)
+let inbox = null, inboxT = null;
+function inboxOn() {
+  inboxOff();
+  inbox = rtOn('inbox', [['site_messages']], p => {
+    if (p?.new?.user_id && p.new.user_id === S.me?.id) return;
+    clearTimeout(inboxT); inboxT = setTimeout(syncList, 1000);
+  });
+}
+function inboxOff() { clearTimeout(inboxT); rtOff(inbox); inbox = null; }
+// 화면이 다시 보일 때: 휴대폰은 백그라운드에서 연결이 끊기므로 'joined'가 아니면 다시 연결 (대화는 놓친 메시지도 다시 읽음)
+function rtRevive() {
+  if (inbox && inbox.state !== 'joined') inboxOn();
+  if (S.chat.rt && S.chat.rt.state !== 'joined' && S.chat.rtMake) { rtOff(S.chat.rt); S.chat.rt = S.chat.rtMake(); S.chat.rtKick?.(); }
+}
 
 // ---------- 화면 ----------
 function render() {
@@ -554,7 +595,7 @@ function renderList() {
       <select id="fState"><option value="">BM 상태 전체</option>${states.map(x => `<option ${f.state === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select id="fTrack"><option value="">제작처 전체</option><option value="factory" ${f.track === 'factory' ? 'selected' : ''}>공장</option><option value="site" ${f.track === 'site' ? 'selected' : ''}>현장 (패널라이징 포함)</option></select>
       <select id="fPerson"><option value="">담당자 전체</option>${people.map(x => `<option ${f.person === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-      <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
+      <select id="fSort"><option value="ship" ${f.sort === 'ship' ? 'selected' : ''}>상차일 가까운 순</option><option value="recent" ${f.sort === 'recent' ? 'selected' : ''}>최근 대화 순</option><option value="contract" ${f.sort === 'contract' ? 'selected' : ''}>계약일 최신 순</option><option value="pct" ${f.sort === 'pct' ? 'selected' : ''}>수금율 높은 순</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>현장명</option></select>
       <button class="btn sm ${S.table.on ? 'primary' : ''}" id="tblToggle">${S.table.on ? '표 닫기' : ic('table') + ' 표 만들기'}</button>
       ${S.me.role === 'manager' ? `<label class="tog"><input type="checkbox" id="fShowDone" ${f.showDone ? 'checked' : ''}> 완료된 현장 보기 <span id="hiddenN" class="sub"></span></label>` : ''}
       <label class="tog"><input type="checkbox" id="fShowArchived" ${f.showArchived ? 'checked' : ''}> 보관 현장 보기 <span id="archivedN" class="sub"></span></label>
@@ -588,6 +629,22 @@ function inDateRange(site) {
   const v = String(site[f.dateField] || '').slice(0, 10); if (!v) return false;
   return (!f.from || v >= f.from) && (!f.to || v <= f.to);
 }
+// 상대 시간: 방금 / N분 전 / (오늘) N시간 전 / 어제 / M/D — 날짜는 한국 시간 기준
+const kstDay = t => new Date(t + 9 * 3600000).toISOString().slice(0, 10);
+function ago(iso) {
+  const t = Date.parse(iso); if (!t) return '';
+  const d = Date.now() - t;
+  if (d < 60000) return '방금';
+  if (d < 3600000) return `${Math.floor(d / 60000)}분 전`;
+  if (kstDay(t) === kstDay(Date.now())) return `${Math.floor(d / 3600000)}시간 전`;
+  if (kstDay(t) === kstDay(Date.now() - 86400000)) return '어제';
+  const [, m, dd] = kstDay(t).split('-'); return `${+m}/${+dd}`;
+}
+// 목록 행 아래 마지막 대화 한 줄: "보낸사람: 내용 · 3분 전" (건축주톡이면 앞에 표시)
+function lastLine(bm) {
+  const m = S.last[bm]; if (!m) return '';
+  return `<div class="last">${m.channel === 'owner' ? '건축주톡 · ' : ''}${esc(m.sender_name || '')}: ${esc(m.body || '📎 첨부')} · ${esc(ago(m.last_at))}</div>`;
+}
 function renderRows() {
   const f = S.filter;
   const q = f.q.trim().toLowerCase();
@@ -608,7 +665,9 @@ function renderRows() {
   let rows = base.filter(({ c }) => !f.stage || (c && c.currentId === f.stage));
   const dh = $('#dateHint'); if (dh) { const lbl = DATE_FIELDS.find(d => d[0] === f.dateField)?.[1] || ''; dh.textContent = (f.from || f.to) ? `${lbl} ${f.from ? fmtDate(f.from) : '처음'} ~ ${f.to ? fmtDate(f.to) : '끝'} (날짜 없는 현장 제외)` : ''; }
   const shipKey = r => r.ship_date ? r.ship_date : '9999';
-  rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
+  const byName = (a, b) => String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko');
+  const lastAt = r => Date.parse(S.last[r.site.bm_key]?.last_at || '') || 0;   // 대화 없는 현장 = 0 → 맨 뒤
+  rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'recent' ? (lastAt(b) - lastAt(a)) || byName(a, b) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : byName(a, b));
   const stageCount = {}; for (const { c } of base) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
   const chips = STAGE_DEFS.filter(d => stageCount[d.id] || f.stage === d.id).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id] || 0}</b></button>`).join('');
   const unreadSites = pool.filter(r => S.unread[r.site.bm_key] > 0).length;
@@ -621,7 +680,7 @@ function renderRows() {
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div>${lastLine(site.bm_key)}</td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -821,13 +880,15 @@ async function refreshMembers(rec) {
 }
 async function refreshUnread() {
   if (!S.user) return;
-  const { data, error } = await sb.rpc('unread_counts');
+  const [{ data, error }, lastRes] = await Promise.all([sb.rpc('unread_counts'), sb.rpc('site_last_messages')]);
+  if (!lastRes.error) S.last = Object.fromEntries((lastRes.data || []).map(r => [r.bm_key, r]));   // 현장별 마지막 메시지 (최근 대화 순·목록 한 줄)
   if (!error) { S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)])); S.calls = Object.fromEntries((data || []).filter(r => Number(r.calls) > 0).map(r => [r.bm_key, Number(r.calls)])); }
   // 홈 화면 아이콘 배지 (설치형 앱에서만 동작)
   try { const archived = new Set((S.computed || []).filter(r => r.site.archived_at).map(r => r.site.bm_key));   // 보관 현장은 배지에서 뺌
     const n = Object.entries(S.unread).filter(([k]) => !archived.has(k)).reduce((a, [, v]) => a + v, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
 }
-function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; S.chat.sig = {}; S.chat.lastId = null; S.chat.justSent = null; }
+function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.gen++;   // 세대를 넘겨 늦게 온 실시간 알림·load()가 닫힌 대화를 다시 읽지 않게
+  clearTimeout(S.chat.rtT); rtOff(S.chat.rt); S.chat.rt = S.chat.rtMake = S.chat.rtKick = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; S.chat.sig = {}; S.chat.lastId = null; S.chat.justSent = null; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
 const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
 const isImg = f => /^image\//.test(f.type || '');
@@ -869,13 +930,13 @@ async function openChat(site) {
     const paths = all.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !(S.chat.urls[p] && S.chat.urls[p].exp > now));
     if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = { u: s.signedUrl, exp: now + URL_TTL }; }); }
     if (S.chat.gen !== gen || S.chat.bmKey !== site.bm_key) return;
-    // 바뀐 톡만 다시 그림: 메시지 id·첨부 수·삭제 가능 여부로 서명을 만들어 비교 (20초마다 전부 다시 그리면 스크롤·링크가 튐). 링크를 새로 받았으면 다시 그림
+    // 바뀐 톡만 다시 그림: 메시지 id·첨부 수·삭제 가능 여부로 서명을 만들어 비교 (읽을 때마다 전부 다시 그리면 스크롤·링크가 튐). 링크를 새로 받았으면 다시 그림
     const sigOf = list => list.map(m => { const fs = m.message_files || []; return `${m.id}:${fs.length}:${fs.filter(f => f.deleted_at).length}:${m.user_id === S.me.id && now - new Date(m.created_at).getTime() < 5 * 60 * 1000 ? 1 : 0}`; }).join(',');
     for (const ch of both ? ['staff', 'owner'] : ['staff']) {
       const sg = error ? 'err:' + error.message : sigOf(S.chat.byCh[ch]);
       if (S.chat.sig[ch] !== sg || paths.length) { S.chat.sig[ch] = sg; renderMsgs(error, ch); }
     }
-    // 읽음 처리: 처음 열 때 한 번 + 새 메시지가 왔을 때(마지막 id가 바뀜) 화면이 보이는 동안만 — 20초마다 매번 부르지 않음, 숨긴 탭에서는 읽은 걸로 치지 않음
+    // 읽음 처리: 처음 열 때 한 번 + 새 메시지가 왔을 때(마지막 id가 바뀜) 화면이 보이는 동안만 — 읽을 때마다 매번 부르지 않음, 숨긴 탭에서는 읽은 걸로 치지 않음
     const lastId = all.length ? all[all.length - 1].id : null;
     const arrived = lastId !== S.chat.lastId; S.chat.lastId = lastId;
     if (firstLoad || (arrived && document.visibilityState === 'visible')) {
@@ -886,7 +947,12 @@ async function openChat(site) {
   };
   await load();
   if (S.chat.gen !== gen || S.chat.bmKey !== site.bm_key) return;   // 기다리는 사이 다른 화면으로 갔으면 타이머를 만들지 않음
-  S.chat.timer = setInterval(load, 20000);
+  // 실시간(새 메시지가 저장되면 서버가 바로 보내 줌) + 1분 폴링은 끊겼을 때 대비. 알림이 몰려 와도 0.3초 모아서 한 번만 읽음
+  S.chat.timer = setInterval(load, 60000);
+  const filter = 'bm_key=eq.' + site.bm_key;
+  S.chat.rtKick = () => { if (S.chat.gen !== gen) return; clearTimeout(S.chat.rtT); S.chat.rtT = setTimeout(() => { if (S.chat.gen === gen) load(); }, 300); };
+  S.chat.rtMake = () => rtOn('chat-' + site.bm_key, [['site_messages', filter], ['message_files', filter]], S.chat.rtKick);
+  S.chat.rt = S.chat.rtMake();
   const inp = $('#msgInp'); if (!inp) return;
   const INP_MAX = 118;   // CSS max-height와 같게 (5줄)
   const touch = matchMedia('(pointer: coarse)').matches;   // 휴대폰: Enter = 줄바꿈, 전송은 보내기 버튼 (Shift 키가 없어서)
@@ -1077,6 +1143,13 @@ function renderDetail(key) {
         <div class="sec"><h3>단계</h3><div class="stages">${stages}</div></div>
       </div>
       <div class="card" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">공종별 세부공정</h3>${procs || '<div class="sub">세부공정 없음</div>'}</div>
+      <div class="card docs" style="margin-top:16px"><h3 style="margin:0 0 10px;font-size:14px;color:var(--mute)">서류함</h3>
+        <div id="docList"><div class="sub">불러오는 중…</div></div>
+        ${site.archived_at ? '' : `<div class="doc-up"><select id="docKind">${DOC_KINDS.map(k => `<option ${k === '도면' ? 'selected' : ''}>${k}</option>`).join('')}</select>
+          <button class="btn sm" id="docBtn">${ic('clip')} 파일 올리기</button><span class="sub" id="docMsg"></span>
+          <input type="file" id="docInp" multiple accept=".pdf,image/*,.dwg,.dxf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.zip" class="hidden"></div>`}
+      </div>
+      <div class="sub" style="margin:6px 4px 0">내부용 — 건축주 앱에는 보이지 않아요.</div>
     </div>
     <div>
       <div class="card chat"><h3 style="margin:0 0 8px;font-size:14px;color:var(--mute)">공간 Talk <span class="sub" id="chatScope" style="font-weight:400">· 담당자만 볼 수 있어요</span></h3>
@@ -1119,6 +1192,66 @@ function renderDetail(key) {
   if (S.wantChat) { S.wantChat = false; requestAnimationFrame(() => grid.scrollTo({ left: grid.clientWidth })); }
   openChat(site);
   refreshMembers(rec);
+  S.docsKey = key; loadDocs(site);
+  bindDocUpload(site);
+}
+
+// ----- 서류함 (현장별 계약서·도면 등, 직원 전용) -----
+// 행을 지울 수 있는 사람: 올린 사람 / 운영자·관리자. 보관 현장은 읽기만
+const DOC_BUCKET = 'site-docs', DOC_MAX = 50 * 1024 * 1024;
+const DOC_KINDS = ['계약서', '변경계약서', '도면', '인허가', '기타'];
+const docWho = id => { if (id === S.me.id) return S.me.staff_name || S.me.google_name || ''; const u = (S.users || []).find(x => x.id === id); return u ? (u.staff_name || u.google_name || '') : ''; };
+async function loadDocs(site) {
+  const key = site.bm_key;
+  const { data, error } = await sb.from('site_docs').select('id, kind, name, path, size, mime, uploaded_by, created_at').eq('bm_key', key).order('created_at', { ascending:false });
+  const el = $('#docList'); if (!el || S.docsKey !== key) return;   // 기다리는 사이 다른 화면으로 갔으면 그리지 않음
+  if (error) { el.innerHTML = `<div class="err">서류를 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
+  const docs = data || [];
+  if (!docs.length) { el.innerHTML = '<div class="sub">아직 올린 서류가 없어요. 계약서·도면 PDF를 올려 두면 담당자 모두 여기서 받을 수 있어요.</div>'; return; }
+  const canDel = d => !site.archived_at && (d.uploaded_by === S.me.id || ['owner', 'admin'].includes(S.me.role));
+  el.innerHTML = DOC_KINDS.map(k => { const g = docs.filter(d => d.kind === k); if (!g.length) return '';
+    return `<div class="k">${k} <span style="font-weight:400">${g.length}</span></div>` + g.map(d => { const who = docWho(d.uploaded_by);
+      return `<div class="doc"><div class="t"><a href="#" data-doc="${esc(d.id)}" title="${esc(d.name)}">${ic('file')} <span>${esc(d.name)}</span></a><div class="sub">${d.size ? fmtSize(d.size) + ' · ' : ''}${fmtDate(d.created_at)}${who ? ' · ' + esc(who) : ''}</div></div>${canDel(d) ? `<button class="btn sm" data-ddel="${esc(d.id)}">삭제</button>` : ''}</div>`; }).join('');
+  }).join('');
+  const byId = id => docs.find(d => String(d.id) === id);
+  // 받기: 누를 때 10분짜리 링크를 만듦 (팝업 차단을 피하려고 창부터 엶)
+  el.querySelectorAll('a[data-doc]').forEach(a => a.onclick = async e => {
+    e.preventDefault(); const d = byId(a.dataset.doc); if (!d) return;
+    const w = window.open('about:blank', '_blank');
+    const { data: s, error: e1 } = await sb.storage.from(DOC_BUCKET).createSignedUrl(d.path, 600, { download: d.name });
+    if (e1 || !s?.signedUrl) { if (w) w.close(); toast('파일을 열지 못했어요: ' + (e1?.message || ''), true); return; }
+    if (w) { w.opener = null; w.location.href = s.signedUrl; } else location.href = s.signedUrl;
+  });
+  // 삭제: 행을 먼저 지우고(실패하면 여기서 끝) 그 다음 파일 — 대화 첨부와 같은 순서
+  el.querySelectorAll('button[data-ddel]').forEach(b => b.onclick = async () => {
+    const d = byId(b.dataset.ddel); if (!d || !confirm(`"${d.name}"을(를) 서류함에서 삭제할까요?`)) return;
+    b.disabled = true;
+    const { data: gone, error: e1 } = await sb.from('site_docs').delete().eq('id', d.id).select('id');
+    if (e1 || !gone?.length) { toast('삭제 실패: ' + (e1?.message || '권한이 없어요'), true); b.disabled = false; return; }
+    await sb.storage.from(DOC_BUCKET).remove([d.path]);
+    loadDocs(site);
+  });
+}
+function bindDocUpload(site) {
+  const btn = $('#docBtn'), inp = $('#docInp'), msg = $('#docMsg'); if (!btn || !inp) return;
+  btn.onclick = () => inp.click();
+  inp.onchange = async () => {
+    const files = [...inp.files]; inp.value = ''; if (!files.length) return;
+    const kind = $('#docKind').value; btn.disabled = true;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]; msg.textContent = `올리는 중 ${i + 1}/${files.length}`;
+      if (f.size > DOC_MAX) { toast(`${f.name}: 파일당 50MB까지 올릴 수 있어요 (${fmtSize(f.size)})`, true); continue; }
+      // 저장소 키는 ASCII만 → uuid.확장자, 원래 이름은 DB에
+      const ext = (f.name.match(/\.([a-zA-Z0-9]{1,6})$/) || [, 'bin'])[1].toLowerCase();
+      const path = `${site.bm_key}/${crypto.randomUUID()}.${ext}`;
+      const { error: e1 } = await sb.storage.from(DOC_BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+      if (e1) { toast(`${f.name} 업로드 실패: ${e1.message}`, true); continue; }
+      const { error: e2 } = await sb.from('site_docs').insert({ bm_key: site.bm_key, kind, name: f.name.slice(0, 200), path, size: f.size, mime: f.type || null });
+      if (e2) { await sb.storage.from(DOC_BUCKET).remove([path]); toast(`${f.name} 저장 실패: ${e2.message}`, true); }   // 행이 안 생기면 올린 파일도 지움
+    }
+    if (msg.isConnected) msg.textContent = ''; btn.disabled = false;
+    loadDocs(site);
+  };
 }
 
 // ----- 버그·개선 제보 -----

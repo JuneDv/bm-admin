@@ -7,6 +7,8 @@
 //  POST {owner_digest:true} : pg_cron 이 매시 호출. 조용한 시간이 끝난(또는 '하루 한 번' 8시) 건축주 기기에 그동안 쌓인 메시지 요약
 //  POST {feedback_id} : 버그 제보 → 운영자 기기로 즉시. event:'reply' 이면 제보자에게 답변·상태 변경 알림 (근무시간 무관)
 //  POST {test:true}   : 로그인 사용자 본인 기기로 테스트 알림 (Authorization: Bearer <user jwt>) — 근무시간 무관
+//  POST {stage_notify:true} : pg_cron 이 매시 호출. 건축주가 연결된 현장의 공사 단계를 다시 계산해(stage-engine.js — 건축주 앱과 같은 파일)
+//     앞 단계로 넘어갔으면 그 현장 건축주 기기에 "○○ 단계로 넘어갔어요" (기기별 1번, 조용한 시간이면 끝난 뒤, '호출만 받기'는 제외, 사흘 지나면 안 보냄)
 // 수신자는 RPC push_recipients 가 판정(직원 + 건축주톡이면 연결된 건축주), pushed_at 으로 중복 방지.
 // 건축주(owner_users)에게는 건축주 앱용 문구·주소(url)로, 직원에게는 관리자 앱용(hash)으로 보냄
 // 내부 호출(DB 트리거·cron)은 x-internal-key 헤더(Vault 'push_internal_key')로 확인 — 없으면 거절. GET(공개키)·test(사용자 토큰)만 열어 둠
@@ -14,6 +16,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
+import "./stage-engine.js";   // 단계 판정 엔진 (건축주·관리자 앱의 stage-engine.js 복사본 — 고치면 세 곳 같이)
+// deno-lint-ignore no-explicit-any
+const StageEngine = (globalThis as any).StageEngine;
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -297,6 +302,85 @@ async function handleFeedback(id: number, event?: string) {
   return json({ ok: true, to: "owner", devices: subs.length, ...res });
 }
 
+// ---------- 공사 단계 변경 알림 (건축주) ----------
+const s_ = (v: unknown) => (v === null || v === undefined) ? "" : String(v);
+// DB 행 → 단계 엔진 입력 형식 (건축주 앱 toRecords 와 같은 열 이름)
+const toRow = (r: Record<string, unknown>) => ({
+  "BM KEY": r.bm_key, "ISSUE NAME": s_(r.issue_name), "SITE": s_(r.site_address), "NAME": s_(r.owner_name),
+  "MANAGER": s_(r.manager), "DESIGN": s_(r.designer), "INTERIOR": s_(r.interior), "BM STATE": s_(r.bm_state),
+  "AD KEY": s_(r.ad_key), "AD STATE": s_(r.ad_state), "FC KEY": s_(r.fc_key), "FC STATE": s_(r.fc_state),
+  "OFB KEY": s_(r.ofb_key), "OFB STATE": s_(r.ofb_state), "IOS KEY": s_(r.ios_key), "IOS STATE": s_(r.ios_state),
+  "COS KEY": s_(r.cos_key), "COS STATE": s_(r.cos_state), "ASOS KEY": s_(r.asos_key), "ASOS STATE": s_(r.asos_state),
+  "실시도면_완료일": s_(r.shimdo_done_at), "계약일": s_(r.contract_date), "희망입주일": s_(r.movein_date), "제작처": s_(r.factory_type),
+  "프리패브 공법": s_(r.prefab_method), "상차일": s_(r.ship_date), "착공일": s_(r.start_date),
+  "공사비_총액": s_(r.cost_total), "공사비_수금액": s_(r.cost_paid), "공사비_수금율": s_(r.cost_pct),
+  "설계비_총액": s_(r.design_total), "설계비_수금액": s_(r.design_paid), "설계비_수금율": s_(r.design_pct),
+});
+type StageRow = { bm_key: string; stage_id: string; stage_idx: number; title: string; changed_at: string | null };
+async function handleStageNotify(dry: boolean) {
+  // 1) 건축주가 연결된 현장만 (보관 현장 제외)
+  const { data: links, error: e1 } = await sb.from("owner_sites").select("bm_key, user_id");
+  if (e1) throw e1;
+  const keys = [...new Set((links ?? []).map((l: { bm_key: string }) => l.bm_key))];
+  if (!keys.length) return json({ ok: true, sites: 0 });
+  const [{ data: sites, error: e2 }, { data: items, error: e3 }, { data: prev, error: e4 }] = await Promise.all([
+    sb.from("sites").select("*").in("bm_key", keys).is("archived_at", null),
+    sb.from("stage_items").select("bm_key, process, stage_key, name, state, seq").in("bm_key", keys).order("seq"),
+    sb.from("site_stage").select("bm_key, stage_id, stage_idx, title, changed_at").in("bm_key", keys),
+  ]);
+  if (e2 || e3 || e4) throw e2 || e3 || e4;
+  const prevBy = new Map<string, StageRow>((prev ?? []).map((p: StageRow) => [p.bm_key, p]));
+  const nameOf = new Map<string, string>();
+  const now = new Date().toISOString();
+  const upserts: Record<string, unknown>[] = [];
+  const changed: string[] = [];
+  for (const site of sites ?? []) {
+    const st = (items ?? []).filter((i: { bm_key: string }) => i.bm_key === site.bm_key).map((i: Record<string, unknown>) => ({
+      "BM KEY": i.bm_key, "PROCESS": i.process, "STAGE KEY": i.stage_key, "STAGE NAME": s_(i.name), "STATE": s_(i.state), "SEQ": s_(i.seq),
+    }));
+    let c;
+    try { c = StageEngine.compute(toRow(site), st); } catch (e) { console.warn("stage", site.bm_key, String(e)); continue; }
+    const cur = { stage_id: c.currentId as string, stage_idx: c.current as number, title: c.stages[c.current].title as string };
+    nameOf.set(site.bm_key, site.issue_name || site.site_address || site.bm_key);
+    const p = prevBy.get(site.bm_key);
+    if (!p) upserts.push({ bm_key: site.bm_key, ...cur, changed_at: null, checked_at: now });             // 처음 본 현장: 기록만
+    else if (cur.stage_idx > p.stage_idx) { upserts.push({ bm_key: site.bm_key, ...cur, changed_at: now, checked_at: now }); changed.push(site.bm_key); }
+    else if (cur.stage_idx < p.stage_idx) upserts.push({ bm_key: site.bm_key, ...cur, changed_at: null, checked_at: now });   // 데이터 정정으로 뒤로: 알림 없음
+    else upserts.push({ bm_key: site.bm_key, stage_id: p.stage_id, stage_idx: p.stage_idx, title: p.title, changed_at: p.changed_at, checked_at: now });
+  }
+  if (dry) return json({ dry: true, sites: upserts.length, changed, first: upserts.filter((u) => !prevBy.has(String(u.bm_key))).length });
+  if (upserts.length) { const { error } = await sb.from("site_stage").upsert(upserts, { onConflict: "bm_key" }); if (error) throw error; }
+
+  // 2) 사흘 안에 넘어간 단계 → 아직 안 보낸 건축주 기기로 (조용한 시간·'호출만 받기'·'하루 한 번'(8시에만) 반영)
+  const since = new Date(Date.now() - 3 * 864e5).toISOString();
+  const { data: pending } = await sb.from("site_stage").select("bm_key, stage_id, stage_idx, title, changed_at").in("bm_key", keys).gte("changed_at", since);
+  const h = kstHour();
+  let res = emptyRes(); let notices = 0;
+  for (const p of (pending ?? []) as StageRow[]) {
+    const users = [...new Set((links ?? []).filter((l: { bm_key: string }) => l.bm_key === p.bm_key).map((l: { user_id: string }) => l.user_id))];
+    if (!users.length) continue;
+    const [{ data: subRows }, { data: sent }] = await Promise.all([
+      sb.from("push_subscriptions").select("user_id, id, endpoint, p256dh, auth, owner_mode, quiet").in("user_id", users),
+      sb.from("stage_push_log").select("sub_id").eq("bm_key", p.bm_key).eq("stage_id", p.stage_id),
+    ]);
+    const done = new Set((sent ?? []).map((x: { sub_id: number }) => x.sub_id));
+    const due = (subRows ?? []).filter((r: { id: number; owner_mode: string; quiet: string | null }) =>
+      !done.has(r.id) && r.owner_mode !== "calls" && (r.owner_mode === "digest" ? h === 8 : !inQuiet(r.quiet, h)));
+    if (!due.length) continue;
+    const payload: Payload = {
+      title: `${nameOf.get(p.bm_key) || p.bm_key} · 공사 단계`,
+      body: `'${p.title}' 단계로 넘어갔어요. 앱에서 진행 상황을 확인해 보세요.`,
+      tag: `stage-${p.bm_key}`, hash: "", url: "./", call: false, bm_key: p.bm_key,
+    };
+    const r = await sendTo(toSubs(due), payload, { ttl: 86400, urgency: webpush.Urgency.Normal, topic: `s${p.bm_key}`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) });
+    res = addRes(res, r); notices++;
+    await sb.from("stage_push_log").upsert(due.map((d: { id: number }) => ({ bm_key: p.bm_key, stage_id: p.stage_id, sub_id: d.id })), { onConflict: "bm_key,stage_id,sub_id", ignoreDuplicates: true });
+    await sb.from("push_subscriptions").update({ last_push_at: new Date().toISOString() }).in("id", due.map((d: { id: number }) => d.id));
+  }
+  console.log(JSON.stringify({ stage_notify: upserts.length, changed, notices, ...res }));
+  return json({ ok: true, sites: upserts.length, changed, notices, ...res });
+}
+
 async function handleTest(req: Request, body: { endpoint?: string }) {
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return json({ error: "unauthorized" }, 401);
@@ -320,6 +404,7 @@ Deno.serve(async (req: Request) => {
     if (body.test) return await handleTest(req, body);
     if (!(await isInternal(req))) return json({ error: "unauthorized" }, 401);
     if (body.digest) return await handleDigest(!!body.dry);
+    if (body.stage_notify) return await handleStageNotify(!!body.dry);
     // hour 지정은 집계 확인(dry)에서만 — 공개 호출로 엉뚱한 시각에 요약이 나가지 않게
     if (body.owner_digest) return await handleOwnerDigest(!!body.dry, body.dry && typeof body.hour === "number" ? body.hour : undefined);
     if (body.feedback_id) return await handleFeedback(Number(body.feedback_id), body.event);
