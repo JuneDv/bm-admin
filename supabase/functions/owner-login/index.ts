@@ -3,7 +3,8 @@
 //   - 두 값이 같은 현장(sites.phones ∋ phone, sites.contract_no = contract)에 있으면
 //     건축주 계정(없으면 생성, app_metadata.kind='owner')으로 로그인 세션을 돌려주고 그 현장을 계정에 연결
 //   - 틀린 시도: 같은 번호 1시간 5회 / 같은 IP 1시간 30회 넘으면 잠시 막음
-//  계정 이메일은 실제로 쓰이지 않는 주소(…@owner.invalid), 비밀번호는 접속마다 새로 만들어 서버만 앎
+//  계정 이메일은 실제로 쓰이지 않는 주소(…@owner.invalid). 세션은 서버에서 일회용 로그인 링크로 발급
+//  (비밀번호를 바꾸지 않으므로 같은 계정의 다른 기기 접속이 끊기지 않음 — 가족이 한 번호로 여러 기기에서 접속 가능)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -79,12 +80,15 @@ Deno.serve(async (req: Request) => {
 
     const name = sites[0].owner_name ?? null;
     const userId = await ownerUserId(phone, name);
-    // 접속마다 새 비밀번호로 바꾸고 서버에서 바로 로그인 → 세션만 돌려줌
-    const password = randomPassword();
-    const { data: u, error: e3 } = await admin.auth.admin.updateUserById(userId, { password });
+    // 일회용 로그인 링크(메일 발송 없음)를 서버에서 바로 확인 → 새 세션만 돌려줌
+    // 예전처럼 비밀번호를 바꾸면 그 계정의 다른 기기 세션이 모두 끊김
+    const { data: u, error: e3 } = await admin.auth.admin.getUserById(userId);
     if (e3 || !u?.user?.email) throw e3 ?? new Error("계정 정보를 찾지 못했어요");
+    const { data: link, error: e5 } = await admin.auth.admin.generateLink({ type: "magiclink", email: u.user.email });
+    const tokenHash = link?.properties?.hashed_token;
+    if (e5 || !tokenHash) throw e5 ?? new Error("로그인 링크 발급 실패");
     const signer = createClient(URL_, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: sess, error: e4 } = await signer.auth.signInWithPassword({ email: u.user.email, password });
+    const { data: sess, error: e4 } = await signer.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" });
     if (e4 || !sess?.session) throw e4 ?? new Error("세션 발급 실패");
 
     const links = sites.map((s) => ({ user_id: userId, bm_key: s.bm_key }));

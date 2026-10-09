@@ -1000,7 +1000,7 @@ function renderDetail(key) {
     <div>
       <div class="card">
         <div class="h"><div><h2>${esc(site.issue_name || key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}" target="_blank" rel="noopener">건축주 화면 보기</a>` : ''}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}&preview=1" target="_blank" rel="noopener" title="화면 확인용 — 공간 Talk는 막혀 있어요">건축주 화면 보기</a>` : ''}</div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
           <dt>BM 상태</dt><dd><span class="tag">${esc(site.bm_state || '-')}</span> ${c ? `<span class="sub">→ ${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}</span>` : ''}</dd>
