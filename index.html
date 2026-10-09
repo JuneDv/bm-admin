@@ -377,6 +377,14 @@ window.addEventListener('resize', fitHeader);
 
 // ---------- 라우팅 ----------
 window.go = h => { location.hash = h; };
+// '건축주 화면 보기': 직원 로그인으로 10분짜리 미리보기 확인값을 만들어 건축주 앱을 엶 (건축주 로그인 없이 그 현장만 보임)
+window.openOwnerPreview = async bm => {
+  const w = window.open('about:blank', '_blank');   // 팝업 차단을 피하려고 클릭 즉시 창부터 엶
+  const { data, error } = await sb.rpc('create_preview_ticket', { p_bm_key: bm });
+  if (error || !data) { if (w) w.close(); alert('미리보기를 열지 못했어요: ' + (error?.message || '')); return; }
+  const url = `${OWNER_APP_URL}/?preview=${encodeURIComponent(data)}`;
+  if (w) { w.opener = null; w.location.href = url; } else location.href = url;
+};
 window.addEventListener('hashchange', render);
 
 // ---------- 인증 ----------
@@ -1002,7 +1010,7 @@ function renderDetail(key) {
     <div>
       <div class="card">
         <div class="h"><div><h2>${esc(site.issue_name || key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}&preview=1" target="_blank" rel="noopener" title="화면 확인용 — 공간 Talk는 막혀 있어요">건축주 화면 보기</a>` : ''}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a><button class="btn sm" onclick="openOwnerPreview('${esc(key)}')" title="화면 확인용(10분) — 공간 Talk는 막혀 있어요">건축주 화면 보기</button></div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
           <dt>BM 상태</dt><dd><span class="tag">${esc(site.bm_state || '-')}</span> ${c ? `<span class="sub">→ ${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}</span>` : ''}</dd>

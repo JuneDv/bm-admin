@@ -2,6 +2,8 @@
 //  POST { phone, contract }
 //   - 두 값이 같은 현장(sites.phones ∋ phone, sites.contract_no = contract)에 있으면
 //     건축주 계정(없으면 생성, app_metadata.kind='owner')으로 로그인 세션을 돌려주고 그 현장을 계정에 연결
+//  POST { contract, link_only: true } + Authorization: Bearer <건축주 access token>
+//   - '내 정보 → 현장 추가': 이미 로그인한 건축주가 같은 번호의 다른 현장을 계약번호로 연결 (새 세션 없이)
 //   - 틀린 시도: 같은 번호 1시간 5회 / 같은 IP 1시간 30회 넘으면 잠시 막음
 //  계정 이메일은 실제로 쓰이지 않는 주소(…@owner.invalid). 세션은 서버에서 일회용 로그인 링크로 발급
 //  (비밀번호를 바꾸지 않으므로 같은 계정의 다른 기기 접속이 끊기지 않음 — 가족이 한 번호로 여러 기기에서 접속 가능)
@@ -61,7 +63,15 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "bad request" }, 400);
   try {
     const body = await req.json().catch(() => ({}));
-    const phone = String(body.phone ?? "").replace(/[^0-9]/g, "");
+    let phone = String(body.phone ?? "").replace(/[^0-9]/g, "");
+    let linkUser: string | null = null;
+    if (body.link_only) {
+      const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+      const { data: { user } } = await admin.auth.getUser(token);
+      const { data: owner } = user ? await admin.from("owner_users").select("user_id, phone").eq("user_id", user.id).maybeSingle() : { data: null };
+      if (!owner) return json({ error: "다시 접속해 주세요." }, 401);
+      linkUser = owner.user_id; phone = owner.phone;
+    }
     const contract = String(body.contract ?? "").replace(/[^0-9A-Za-z-]/g, "").trim();
     const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
     if (!/^01\d{8,9}$/.test(phone) || !contract || contract === "0" || contract.length > 20) {
@@ -71,11 +81,17 @@ Deno.serve(async (req: Request) => {
       return json({ error: "여러 번 틀려서 잠시 막혔어요. 1시간 뒤에 다시 시도하거나 영업 담당자에게 문의해 주세요." }, 429);
     }
     const { data: sites, error } = await admin.from("sites").select("bm_key, owner_name")
-      .eq("contract_no", contract).contains("phones", [phone]);
+      .eq("contract_no", contract).contains("phones", [phone]).is("archived_at", null);
     if (error) throw error;
     if (!sites?.length) {
       await admin.from("owner_login_attempts").insert({ phone, ip, ok: false });
       return json({ error: "전화번호와 계약번호가 맞지 않아요. 계약서의 계약번호를 확인해 주세요." }, 401);
+    }
+
+    if (linkUser) {
+      await admin.from("owner_sites").upsert(sites.map((s) => ({ user_id: linkUser, bm_key: s.bm_key })), { onConflict: "user_id,bm_key", ignoreDuplicates: true });
+      await admin.from("owner_login_attempts").insert({ phone, ip, ok: true });
+      return json({ ok: true, sites: sites.map((s) => s.bm_key) });
     }
 
     const name = sites[0].owner_name ?? null;
