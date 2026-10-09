@@ -567,20 +567,22 @@ function renderRows() {
   const live = S.computed.filter(r => f.showArchived || !r.site.archived_at);
   const hiddenN = S.me.role === 'manager' ? live.filter(hiddenForMe).length : 0;
   const hn = $('#hiddenN'); if (hn) hn.textContent = hiddenN ? `(${hiddenN})` : '';
-  const base = live.filter(rec => (f.showDone || !hiddenForMe(rec)) && (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key])).filter(({ site, c }) =>
+  // pool = 호출·새 메시지·단계 칩을 뺀 나머지 필터를 통과한 현장 → 호출·새 메시지 칩 숫자도 이 기준 (보관·완료 숨김 현장은 안 셈)
+  const pool = live.filter(rec => f.showDone || !hiddenForMe(rec)).filter(({ site, c }) =>
     (!q || [site.issue_name, site.owner_name, site.bm_key, site.site_address].some(v => String(v || '').toLowerCase().includes(q)))
     && (!f.state || site.bm_state === f.state)
     && (!f.track || (isSiteBuild(site, c) ? 'site' : 'factory') === f.track)
     && (!f.person || [site.manager, site.designer, site.interior].map(x => (x || '').trim()).includes(f.person))
     && inDateRange(site));
+  const base = pool.filter(rec => (!f.unreadOnly || S.unread[rec.site.bm_key]) && (!f.callsOnly || S.calls[rec.site.bm_key]));
   let rows = base.filter(({ c }) => !f.stage || (c && c.currentId === f.stage));
   const dh = $('#dateHint'); if (dh) { const lbl = DATE_FIELDS.find(d => d[0] === f.dateField)?.[1] || ''; dh.textContent = (f.from || f.to) ? `${lbl} ${f.from ? fmtDate(f.from) : '처음'} ~ ${f.to ? fmtDate(f.to) : '끝'} (날짜 없는 현장 제외)` : ''; }
   const shipKey = r => r.ship_date ? r.ship_date : '9999';
   rows.sort((a, b) => f.sort === 'ship' ? shipKey(a.site).localeCompare(shipKey(b.site)) : f.sort === 'contract' ? String(b.site.contract_date || '').localeCompare(String(a.site.contract_date || '')) : f.sort === 'pct' ? (Number(b.site.cost_pct) || 0) - (Number(a.site.cost_pct) || 0) : String(a.site.issue_name || '').localeCompare(String(b.site.issue_name || ''), 'ko'));
   const stageCount = {}; for (const { c } of base) if (c) stageCount[c.currentId] = (stageCount[c.currentId] || 0) + 1;
   const chips = STAGE_DEFS.filter(d => stageCount[d.id] || f.stage === d.id).map(d => `<button class="chip ${f.stage === d.id ? 'on' : ''}" data-stage="${d.id}">${esc(d.title)}<b>${stageCount[d.id] || 0}</b></button>`).join('');
-  const unreadSites = Object.keys(S.unread).filter(k => S.unread[k] > 0).length;
-  const callSites = Object.keys(S.calls).length;
+  const unreadSites = pool.filter(r => S.unread[r.site.bm_key] > 0).length;
+  const callSites = pool.filter(r => S.calls[r.site.bm_key] > 0).length;
   const callChip = callSites || f.callsOnly ? `<button class="chip call ${f.callsOnly ? 'on' : ''}" data-calls="1">${ic('call')} 호출<b>${callSites}</b></button>` : '';
   const unreadChip = unreadSites || f.unreadOnly ? `<button class="chip ${f.unreadOnly ? 'on' : ''}" data-unread="1">${ic('msg')} 새 메시지<b>${unreadSites}</b></button>` : '';
   $('#chips').innerHTML = `<button class="chip ${!f.stage ? 'on' : ''}" data-stage="">전체<b>${base.length}</b></button>${chips}${callChip}${unreadChip}`;
@@ -792,7 +794,8 @@ async function refreshUnread() {
   const { data, error } = await sb.rpc('unread_counts');
   if (!error) { S.unread = Object.fromEntries((data || []).map(r => [r.bm_key, Number(r.n)])); S.calls = Object.fromEntries((data || []).filter(r => Number(r.calls) > 0).map(r => [r.bm_key, Number(r.calls)])); }
   // 홈 화면 아이콘 배지 (설치형 앱에서만 동작)
-  try { const n = Object.values(S.unread).reduce((a, b) => a + b, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
+  try { const archived = new Set((S.computed || []).filter(r => r.site.archived_at).map(r => r.site.bm_key));   // 보관 현장은 배지에서 뺌
+    const n = Object.entries(S.unread).filter(([k]) => !archived.has(k)).reduce((a, [, v]) => a + v, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
 }
 function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
