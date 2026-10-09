@@ -574,7 +574,7 @@ function renderRows() {
   if (S.table.on) { renderTable(rows); bindChips(); return; }
   $('#results').innerHTML = rows.length ? `<table class="list"><thead><tr><th>현장</th><th>단계</th><th>BM 상태</th><th>수금율</th><th>상차일</th><th>담당</th></tr></thead><tbody>
       ${rows.map(({ site, c }) => `<tr data-key="${esc(site.bm_key)}">
-        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
+        <td><div class="nm">${esc(site.issue_name || site.bm_key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.prefab_method ? `<span class="tag">${esc(site.prefab_method)}</span>` : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666" title="보관 시작 ${fmtDate(site.archived_at)} · 5년 뒤 삭제">보관</span>` : ''}${S.calls[site.bm_key] ? `<span class="ubadge call">${ic('call')} ${S.calls[site.bm_key]}</span>` : ''}${S.unread[site.bm_key] ? `<span class="ubadge">${ic('msg')} ${S.unread[site.bm_key]}</span>` : ''}</div><div class="sub">${esc(site.owner_name || '')} · ${esc(site.bm_key)}</div></td>
         <td class="st">${dots(c)}${c ? `${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}` : '-'}</td>
         <td><span class="tag">${esc(site.bm_state || '-')}</span></td>
         <td class="pct">${site.cost_pct != null ? Number(site.cost_pct).toFixed(1) + '%' : '-'}</td>
@@ -594,6 +594,7 @@ const COLS = [
   { id:'bm_key',       group:'현장',   label:'BM키',         get: r => r.site.bm_key },
   { id:'site_address', group:'현장',   label:'주소',         get: r => r.site.site_address || '' },
   { id:'track',        group:'현장',   label:'제작처',       get: r => r.c ? (r.c.track === 'site' ? '현장' : '공장') : (r.site.factory_type || '') },
+  { id:'prefab',       group:'현장',   label:'프리패브 공법', get: r => r.site.prefab_method || '' },
   { id:'bm_state',     group:'현장',   label:'BM 상태',      get: r => r.site.bm_state || '' },
   { id:'stage',        group:'현장',   label:'현재 단계',    get: r => r.c ? `${r.c.current + 1}/${r.c.stages.length} ${r.c.stages[r.c.current].title}` : '' },
   { id:'owner_name',   group:'건축주', label:'건축주',       get: r => r.site.owner_name || '' },
@@ -991,7 +992,7 @@ function renderDetail(key) {
   <div class="grid" id="grid">
     <div>
       <div class="card">
-        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
+        <div class="h"><div><h2>${esc(site.issue_name || key)} ${c && c.track === 'site' ? '<span class="tag site">현장제작</span>' : ''}${site.prefab_method ? `<span class="tag">${esc(site.prefab_method)}</span>` : ''}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a>${phones[0] ? `<a class="btn sm" href="${OWNER_APP_URL}/?phone=${esc(phones[0])}" target="_blank" rel="noopener">건축주 화면 보기</a>` : ''}</div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
