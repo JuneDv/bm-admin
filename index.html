@@ -855,11 +855,11 @@ async function openChat(site) {
   const renderTargets = () => {
     const T = $('#targets'); if (!T) return;
     T.innerHTML = `<span>받는 사람</span><button class="chip ${S.chat.target ? '' : 'on'}" data-t="">전체</button>` +
-      ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : m.name + ' 호출'}">${ic('call')} ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('') +
+      ['영업', '설계', '인테리어'].map(r => { const m = members.find(x => x.role === r); const dis = !m || !m.active; return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${dis ? 'disabled' : ''} title="${!m ? '담당자 없음' : !m.active ? '담당 업무 완료' : esc(m.name) + ' 호출'}">${ic('call')} ${r}${m ? ` ${esc(m.name)}` : ''}</button>`; }).join('') +
       // 공무·PM: 현장 담당자가 아닌 계정 역할 전원 호출 — 공정 단계가 되어야 열림(CALL_GATE)
       [['공무', 'gongmu'], ['PM', 'pm']].map(([r, k]) => { const n = (S.roleAccounts || {})[k] || 0; const open = callOpen(rec, r); const nm = (S.roleName || {})[r] || '';
         const tip = !open ? `${CALL_GATE[r].need} 호출할 수 있어요` : !n ? `${r} 역할 앱 계정이 없어 호출을 받을 사람이 없어요` : `${nm || r} 호출`;
-        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${tip}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('') +
+        return `<button class="chip ${S.chat.target === r ? 'on' : ''}" data-t="${r}" ${open && n ? '' : 'disabled'} title="${esc(tip)}">${ic('call')} ${r}${nm ? ` ${esc(nm)}` : ''}</button>`; }).join('') +
       // 건축주: 공간 Talk를 연 현장의 '건축주와 대화'에서만 호출. 다른 현장은 '준비 중'
       (!talkOpen(site) ? `<button class="chip" disabled title="건축주와의 공간 Talk는 준비 중이에요">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}<span class="soon">준비 중</span></button>`
         : S.chat.channel === 'owner' ? `<button class="chip ${S.chat.target === '건축주' ? 'on' : ''}" data-t="건축주" title="건축주 호출">${ic('call')} 건축주${site.owner_name ? ` ${esc(site.owner_name)}` : ''}</button>` : '');
@@ -1013,7 +1013,7 @@ function renderDetail(key) {
     <div>
       <div class="card">
         <div class="h"><div><h2>${esc(site.issue_name || key)} ${trackTags(site, c)}${site.archived_at ? `<span class="tag" style="background:#eee;color:#666">보관 · ${fmtDate(site.archived_at)}부터</span>` : ''}</h2><div class="sub">${esc(site.site_address || '')}</div></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a><button class="btn sm" onclick="openOwnerPreview('${esc(key)}')" title="화면 확인용(10분) — 공간 Talk는 막혀 있어요">건축주 화면 보기</button></div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn sm" href="${JIRA_URL}${esc(key)}" target="_blank" rel="noopener">Jira ${esc(key)}</a><button class="btn sm" data-key="${esc(key)}" onclick="openOwnerPreview(this.dataset.key)" title="화면 확인용(10분) — 공간 Talk는 막혀 있어요">건축주 화면 보기</button></div></div>
         <div class="sec"><dl class="kv">
           <dt>건축주</dt><dd>${esc(site.owner_name || '-')} ${phones.map(p => `<a href="tel:${p}">${fmtPhone(p)}</a>`).join(' · ')}</dd>
           <dt>BM 상태</dt><dd><span class="tag">${esc(site.bm_state || '-')}</span> ${c ? `<span class="sub">→ ${c.current + 1}/${c.stages.length} ${esc(c.stages[c.current].title)}</span>` : ''}</dd>
@@ -1076,7 +1076,7 @@ async function renderFeedback() {
   const { data: mine } = await sb.from('feedback').select('*').eq('user_id', S.me.id).order('created_at', { ascending:false }).limit(50);
   if (!location.hash.startsWith('#feedback')) return;
   const from = S.fbFrom || '#sites'; const list = mine || []; const pend = [];
-  const item = f => `<div class="fb"><div class="meta">${FB_KIND[f.kind] || f.kind} · <span class="tag st-${f.status}">${FB_STATUS[f.status] || f.status}</span> · ${fmtTime(f.created_at)}</div><div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>${f.reply ? `<div class="reply">↳ 운영자: ${esc(f.reply)}</div>` : ''}</div>`;
+  const item = f => `<div class="fb"><div class="meta">${esc(FB_KIND[f.kind] || f.kind)} · <span class="tag st-${esc(f.status)}">${esc(FB_STATUS[f.status] || f.status)}</span> · ${fmtTime(f.created_at)}</div><div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>${f.reply ? `<div class="reply">↳ 운영자: ${esc(f.reply)}</div>` : ''}</div>`;
   $('#main').innerHTML = `<div class="nt"><div class="card fbform">
     <h2>버그·개선 제보</h2>
     <p class="sub" style="margin:0">안 되는 것, 이상한 것, 있으면 좋겠는 것을 적어 주세요. 운영자에게 바로 알림이 가고, 답글이 오면 알려드려요.</p>
@@ -1237,7 +1237,7 @@ async function renderUsers() {
   if (ownerIdsFb.length) { const { data: ows } = await sb.from('owner_users').select('user_id, name, phone').in('user_id', ownerIdsFb); (ows || []).forEach(o => ownerNames[o.user_id] = `${o.name || '건축주'} 건축주 (${fmtPhone(o.phone)})`); }
   const nameOf = id => { const u = S.users.find(x => x.id === id); return u ? (u.staff_name || u.google_name || u.email) : (ownerNames[id] || '탈퇴한 건축주'); };
   const fbHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px" ${S.openFb ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">${ic('bug')} 제보 <span class="sub" style="font-weight:400">· 접수 ${S.openFb} / 전체 ${fbs.length}</span></summary>
-    <div style="margin-top:6px">${fbs.length ? fbs.map(f => `<div class="fb" data-fb="${f.id}"><div class="meta"><b>${esc(nameOf(f.user_id))}</b> · ${f.page === "owner-app" ? "건축주 앱 문의" : (FB_KIND[f.kind] || f.kind)} · ${fmtTime(f.created_at)}${f.page && f.page !== "owner-app" ? ` · <a href="${esc(f.page)}">${esc(f.page)}</a>` : ''} · ${PLAT[f.platform] || f.platform || ''}${f.standalone ? ' 앱' : ''}</div>
+    <div style="margin-top:6px">${fbs.length ? fbs.map(f => `<div class="fb" data-fb="${f.id}"><div class="meta"><b>${esc(nameOf(f.user_id))}</b> · ${f.page === "owner-app" ? "건축주 앱 문의" : esc(FB_KIND[f.kind] || f.kind)} · ${fmtTime(f.created_at)}${f.page && f.page !== "owner-app" ? ` · ${/^#[\w\/.%-]*$/.test(f.page) ? `<a href="${esc(f.page)}">${esc(f.page)}</a>` : esc(f.page)}` : ''} · ${esc(PLAT[f.platform] || f.platform || '')}${f.standalone ? ' 앱' : ''}</div>
       <div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>
       <div class="tools" style="margin:8px 0 0"><select data-f="status">${['open','doing','done'].map(s => `<option value="${s}" ${f.status === s ? 'selected' : ''}>${FB_STATUS[s]}</option>`).join('')}</select><input type="text" data-f="reply" value="${esc(f.reply || '')}" placeholder="답글 (저장하면 제보자에게 알림)" style="flex:1 1 200px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><button class="btn sm" data-save="${f.id}">저장</button><span class="saved"></span></div></div>`).join('') : '<div class="sub">제보가 없어요</div>'}</div></details>`;
   const pushBy = Object.fromEntries((pushRes.data || []).map(r => [r.user_id, r]));

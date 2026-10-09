@@ -9,7 +9,8 @@
 //  POST {test:true}   : 로그인 사용자 본인 기기로 테스트 알림 (Authorization: Bearer <user jwt>) — 근무시간 무관
 // 수신자는 RPC push_recipients 가 판정(직원 + 건축주톡이면 연결된 건축주), pushed_at 으로 중복 방지.
 // 건축주(owner_users)에게는 건축주 앱용 문구·주소(url)로, 직원에게는 관리자 앱용(hash)으로 보냄
-// 인증 없이 호출돼도 할 수 있는 일은 "이미 저장된 행의 정당한 수신자에게 푸시"뿐이라 공개 호출 허용
+// 내부 호출(DB 트리거·cron)은 x-internal-key 헤더(Vault 'push_internal_key')로 확인 — 없으면 거절. GET(공개키)·test(사용자 토큰)만 열어 둠
+//  (전에는 공개 호출을 허용했는데, 같은 행으로 반복 호출해 "문의 답변" 알림을 무한 발송하는 식의 남용이 가능했음)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
@@ -21,7 +22,7 @@ const sb = createClient(URL_, SERVICE, { auth: { persistSession: false } });
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-key",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -51,6 +52,18 @@ async function ensureKeys() {
   publicKey = cfg.vapid_public;
   const vapidKeys = await webpush.importVapidKeys(JSON.parse(cfg.vapid_keys), { extractable: false });
   appServer = await webpush.ApplicationServer.new({ contactInformation: APP_URL, vapidKeys });
+}
+// 내부 호출 키: DB Vault에서 한 번 읽어 둠 (서비스 역할만 읽을 수 있는 함수)
+let internalKey: string | null = null;
+async function isInternal(req: Request): Promise<boolean> {
+  const got = req.headers.get("x-internal-key") ?? "";
+  if (!got) return false;
+  if (!internalKey) {
+    const { data, error } = await sb.rpc("internal_secret", { p_name: "push_internal_key" });
+    if (error || !data) { console.error("internal_secret", error?.message); return false; }
+    internalKey = String(data);
+  }
+  return got.length === internalKey.length && got === internalKey;
 }
 async function isWorkTime(): Promise<boolean> {
   const { data, error } = await sb.rpc("is_work_time");
@@ -301,6 +314,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") return json({ publicKey });
     const body = await req.json().catch(() => ({}));
     if (body.test) return await handleTest(req, body);
+    if (!(await isInternal(req))) return json({ error: "unauthorized" }, 401);
     if (body.digest) return await handleDigest(!!body.dry);
     // hour 지정은 집계 확인(dry)에서만 — 공개 호출로 엉뚱한 시각에 요약이 나가지 않게
     if (body.owner_digest) return await handleOwnerDigest(!!body.dry, body.dry && typeof body.hour === "number" ? body.hour : undefined);

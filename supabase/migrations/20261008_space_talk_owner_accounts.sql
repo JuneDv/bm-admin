@@ -65,7 +65,7 @@ alter policy "write messages to visible sites" on public.site_messages with chec
   and (channel = 'staff' or exists (select 1 from public.owner_talk_sites o where o.bm_key = site_messages.bm_key)));
 create policy "owner reads own talk" on public.site_messages for select using (channel = 'owner' and public.owner_has_site(bm_key));
 create policy "owner writes own talk" on public.site_messages for insert
-  with check (channel = 'owner' and user_id = auth.uid() and target_role is null and not call_owner and public.owner_has_site(bm_key, true));
+  with check (channel = 'owner' and user_id = auth.uid() and not call_owner and public.owner_has_site(bm_key, true));   -- target_role: 건축주도 담당자 호출 가능 (실제 DB와 맞춤)
 create policy "owner reads talk files" on public.message_files for select
   using (public.owner_has_site(bm_key) and exists (select 1 from public.site_messages m where m.id = message_files.message_id and m.channel = 'owner'));
 create policy "owner inserts files to own talk message" on public.message_files for insert
