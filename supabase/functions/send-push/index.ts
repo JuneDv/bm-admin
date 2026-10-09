@@ -246,11 +246,16 @@ async function handleFeedback(id: number, event?: string) {
     if (error) throw error;
     if (!fb) return json({ skipped: "not found" });
     const subs = await subsOf([fb.user_id]);
-    const payload: Payload = {
-      title: `🐞 제보 ${STATUS[fb.status] ?? fb.status} · ${KIND[fb.kind] ?? fb.kind}`,
-      body: fb.reply ? shorten(fb.reply) : `"${shorten(fb.body, 50)}" 제보가 ${STATUS[fb.status] ?? fb.status} 상태로 바뀌었어요`,
-      tag: `feedback-${fb.id}`, hash: "#feedback", call: false,
-    };
+    const fromOwner = (await ownerIds([fb.user_id])).has(fb.user_id);
+    const payload: Payload = fromOwner
+      // 건축주 앱 '앱 사용 문의'에 대한 답변 → 건축주 앱 내 정보(문의)로
+      ? { title: "공간 Talk · 문의 답변", body: fb.reply ? shorten(fb.reply) : `문의가 ${fb.status === "done" ? "처리 완료" : "확인 중"} 상태로 바뀌었어요`,
+          tag: `inquiry-${fb.id}`, hash: "", url: "./?inquiry=1", call: false }
+      : {
+        title: `🐞 제보 ${STATUS[fb.status] ?? fb.status} · ${KIND[fb.kind] ?? fb.kind}`,
+        body: fb.reply ? shorten(fb.reply) : `"${shorten(fb.body, 50)}" 제보가 ${STATUS[fb.status] ?? fb.status} 상태로 바뀌었어요`,
+        tag: `feedback-${fb.id}`, hash: "#feedback", call: false,
+      };
     const res = subs.length ? await sendTo(subs, payload, { ttl: 86400, urgency: webpush.Urgency.Normal }) : emptyRes();
     return json({ ok: true, to: "reporter", devices: subs.length, ...res });
   }
@@ -258,16 +263,17 @@ async function handleFeedback(id: number, event?: string) {
     .select("id, user_id, kind, body, page").maybeSingle();
   if (error) throw error;
   if (!fb) return json({ skipped: "already handled" });
-  const [{ data: who }, { data: owners }] = await Promise.all([
+  const [{ data: who }, { data: owners }, { data: buyer }] = await Promise.all([
     sb.from("admin_users").select("staff_name, google_name, email").eq("id", fb.user_id).maybeSingle(),
     sb.from("admin_users").select("id").eq("role", "owner"),
+    sb.from("owner_users").select("name").eq("user_id", fb.user_id).maybeSingle(),   // 건축주 앱 '앱 사용 문의'
   ]);
-  const name = who?.staff_name || who?.google_name || who?.email || "직원";
+  const name = buyer ? `${buyer.name || "건축주"} 건축주` : (who?.staff_name || who?.google_name || who?.email || "직원");
   const subs = await subsOf((owners ?? []).map((o: { id: string }) => o.id).filter((x: string) => x !== fb.user_id));
   const payload: Payload = {
-    title: `🐞 새 제보 · ${KIND[fb.kind] ?? fb.kind}`,
+    title: buyer ? "💬 건축주 앱 문의" : `🐞 새 제보 · ${KIND[fb.kind] ?? fb.kind}`,
     body: `${name}: ${shorten(fb.body)}`,
-    tag: "feedback-new", hash: "#users", call: false,
+    tag: buyer ? `inquiry-${fb.id}` : "feedback-new", hash: "#users", call: false,
   };
   const res = subs.length ? await sendTo(subs, payload, { ttl: 86400, urgency: webpush.Urgency.High }) : emptyRes();
   console.log(JSON.stringify({ feedback_id: id, ...res }));

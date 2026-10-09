@@ -1220,9 +1220,13 @@ async function renderUsers() {
   S.users = users || []; S.nameOptions = nameRes.data || [];
   // 제보 목록 (운영자): 상태·답글 저장 시 제보자에게 푸시
   const fbs = fbRes.data || []; S.openFb = fbs.filter(f => f.status === 'open').length;
-  const nameOf = id => { const u = S.users.find(x => x.id === id); return u ? (u.staff_name || u.google_name || u.email) : '?'; };
+  // 건축주 앱 '앱 사용 문의'도 같은 제보함으로 들어옴 → 건축주 이름으로 표시
+  const ownerIdsFb = [...new Set(fbs.map(f => f.user_id).filter(id => !S.users.some(x => x.id === id)))];
+  const ownerNames = {};
+  if (ownerIdsFb.length) { const { data: ows } = await sb.from('owner_users').select('user_id, name, phone').in('user_id', ownerIdsFb); (ows || []).forEach(o => ownerNames[o.user_id] = `${o.name || '건축주'} 건축주 (${fmtPhone(o.phone)})`); }
+  const nameOf = id => { const u = S.users.find(x => x.id === id); return u ? (u.staff_name || u.google_name || u.email) : (ownerNames[id] || '탈퇴한 건축주'); };
   const fbHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px" ${S.openFb ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">${ic('bug')} 제보 <span class="sub" style="font-weight:400">· 접수 ${S.openFb} / 전체 ${fbs.length}</span></summary>
-    <div style="margin-top:6px">${fbs.length ? fbs.map(f => `<div class="fb" data-fb="${f.id}"><div class="meta"><b>${esc(nameOf(f.user_id))}</b> · ${FB_KIND[f.kind] || f.kind} · ${fmtTime(f.created_at)}${f.page ? ` · <a href="${esc(f.page)}">${esc(f.page)}</a>` : ''} · ${PLAT[f.platform] || f.platform || ''}${f.standalone ? ' 앱' : ''}</div>
+    <div style="margin-top:6px">${fbs.length ? fbs.map(f => `<div class="fb" data-fb="${f.id}"><div class="meta"><b>${esc(nameOf(f.user_id))}</b> · ${f.page === "owner-app" ? "건축주 앱 문의" : (FB_KIND[f.kind] || f.kind)} · ${fmtTime(f.created_at)}${f.page && f.page !== "owner-app" ? ` · <a href="${esc(f.page)}">${esc(f.page)}</a>` : ''} · ${PLAT[f.platform] || f.platform || ''}${f.standalone ? ' 앱' : ''}</div>
       <div class="body">${esc(f.body)}</div><div class="shots" data-paths="${esc((f.paths || []).join('|'))}"></div>
       <div class="tools" style="margin:8px 0 0"><select data-f="status">${['open','doing','done'].map(s => `<option value="${s}" ${f.status === s ? 'selected' : ''}>${FB_STATUS[s]}</option>`).join('')}</select><input type="text" data-f="reply" value="${esc(f.reply || '')}" placeholder="답글 (저장하면 제보자에게 알림)" style="flex:1 1 200px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><button class="btn sm" data-save="${f.id}">저장</button><span class="saved"></span></div></div>`).join('') : '<div class="sub">제보가 없어요</div>'}</div></details>`;
   const pushBy = Object.fromEntries((pushRes.data || []).map(r => [r.user_id, r]));
