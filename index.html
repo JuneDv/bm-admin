@@ -728,18 +728,20 @@ function hiddenForMe(rec) {
 }
 
 // ----- 공간 Talk (현장 대화: 내부 = 직원끼리 / 건축주 = 건축주 앱과 함께) -----
-// 참여자: 영업은 끝까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "나감"으로 표시.
+// 참여자: 영업은 계약 단계까지, 설계는 실시도면 완료 전까지, 인테리어는 설계(AD) 전체 완료 전까지. 단계가 지나면 "완료"로 표시.
 // (역할은 추후 추가 예정 — 여기 배열에 한 줄씩 늘리면 됨)
 // 건축주 대화: owner_talk_sites에 등록된 현장만 열림(시범). 그 외 현장은 '건축주 · 준비 중'
 const talkOpen = site => !!(S.talkOpen && S.talkOpen.has(site.bm_key));
 
-// 공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
-//  공무: 인테리어 단계부터 잔금 전까지 (자재관리를 공무가 하므로 인테리어 선정부터 참여, 잔금부터는 PM 몫) — 두 트랙 공통
-//  PM  : 잔금 단계부터 (현장 시공 트랙은 '잔금 · 준공' 단계부터)
+// 영업·공무·PM 호출은 공정 단계에 따라 열림 (모든 현장 공통)
+//  영업: 계약 단계까지 (설계 단계부터는 PM이 건축주 소통 담당)
+//  공무: 인테리어 단계부터 잔금 전까지 (자재관리를 공무가 하므로 인테리어 선정부터 참여) — 두 트랙 공통
+//  PM  : 설계 단계부터 준공까지
 //  from: 이 단계부터 켜짐 / until: 이 단계부터 다시 꺼짐 (트랙마다 있는 id만 적용)
 const CALL_GATE = {
+  '영업': { from: ['contract'],          until: ['design'],            need: '계약 단계까지' },
   '공무': { from: ['interior'],          until: ['final', 'complete'], need: '인테리어 단계부터 잔금 전까지' },
-  'PM':   { from: ['final', 'complete'], until: [],                    need: '잔금 단계부터' },
+  'PM':   { from: ['design'],            until: [],                    need: '설계 단계부터' },
 };
 function callOpen(rec, role) {
   const c = rec && rec.c; const g = CALL_GATE[role]; if (!c || !g) return false;
@@ -754,7 +756,7 @@ function chatMembers(rec) {
   const interiorOver = adAllDone(site.bm_key);
   const nm = v => (v || '').trim();
   return [
-    { role: '영업',     name: nm(site.manager),  active: true,         leftNote: '' },
+    { role: '영업',     name: nm(site.manager),  active: c ? callOpen(rec, '영업') : true, leftNote: '계약 완료' },
     { role: '설계',     name: nm(site.designer), active: !designOver,  leftNote: '완료' },
     { role: '인테리어', name: nm(site.interior), active: !interiorOver, leftNote: '완료' },
   ].filter(m => m.name && m.name !== '-');
