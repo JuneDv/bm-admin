@@ -77,14 +77,17 @@ const emptyRes = () => ({ sent: 0, gone: 0, failed: 0, errors: [] as string[] })
 const addRes = (a: ReturnType<typeof emptyRes>, b: ReturnType<typeof emptyRes>) => ({ sent: a.sent + b.sent, gone: a.gone + b.gone, failed: a.failed + b.failed, errors: [...a.errors, ...b.errors] });
 const shorten = (s: string, n = 90) => { const t = (s || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) + "…" : t; };
 
+// 실패 분류: 404/410 = 구독 사라짐(바로 삭제) · 그 외 4xx = 구독 문제(8회 누적 시 삭제) · 429/5xx/네트워크 = 일시 장애(세지 않음)
+// 성공하면 실패 횟수 0으로 — 서비스 장애가 하루 이어져도 멀쩡한 기기가 빠지지 않게
 async function sendTo(subs: Sub[], payload: Payload, opts: webpush.PushMessageOptions) {
   const out = emptyRes();
   const text = JSON.stringify(payload);
+  const okIds: number[] = [];
   await Promise.all(subs.map(async (s) => {
     try {
       const subscriber = appServer!.subscribe({ endpoint: s.endpoint, keys: { auth: s.auth, p256dh: s.p256dh } });
       await subscriber.pushTextMessage(text, opts);
-      out.sent++;
+      out.sent++; okIds.push(s.sub_id);
     } catch (e) {
       const status = e instanceof webpush.PushMessageError ? e.response.status : 0;
       if (status === 404 || status === 410) {
@@ -93,10 +96,11 @@ async function sendTo(subs: Sub[], payload: Payload, opts: webpush.PushMessageOp
       } else {
         out.failed++;
         out.errors.push(`${status || "err"}: ${String(e).slice(0, 120)}`);
-        await sb.rpc("push_fail", { p_id: s.sub_id });
+        if (status >= 400 && status < 500 && status !== 429) await sb.rpc("push_fail", { p_id: s.sub_id });
       }
     }
   }));
+  if (okIds.length) await sb.rpc("push_ok", { p_ids: okIds });
   return out;
 }
 const toSubs = (rows: { user_id: string; id: number; endpoint: string; p256dh: string; auth: string }[] | null) =>

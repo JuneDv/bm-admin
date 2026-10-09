@@ -67,6 +67,9 @@
   .btn:disabled { opacity:.5; cursor:default; }
   .notice { background:#fff7e3; border:1px solid #f1dfae; color:#5a4310; padding:10px 14px; border-radius:10px; font-size:14px; }
   .err { background:#fbeaea; border:1px solid #efc7c7; color:#7a2e2e; padding:10px 14px; border-radius:10px; font-size:14px; }
+  /* 안내 토스트 (alert 대신): 화면 아래 가운데, 4초 뒤 사라짐 */
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:50; max-width:calc(100% - 32px); background:var(--navy-d); color:#fff; padding:10px 16px; border-radius:10px; font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,.2); word-break:break-word; }
+  .toast.err { background:var(--red); }
 
   /* ---- 목록 ---- */
   .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
@@ -285,7 +288,7 @@
 
 <script src="stage-engine.js"></script>
 <script type="module">
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/+esm';
 
 const SUPABASE_URL = 'https://ljxonejavjagwqrorfui.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_fWTsacLqOMhAV9VOeTPy5Q_Elvgx8Fn';   // 공개용 키 — RLS로 보호됨
@@ -355,13 +358,22 @@ S.filter.showArchived = false;                                // 보관(준공·
 S.unread = {};                                                // bm_key → 안 읽은 메시지 수
 S.calls = {};                                                 // bm_key → 나를 호출한 안 읽은 메시지 수
 S.filter.callsOnly = false;
-S.chat = { bmKey: null, messages: [], timer: null };
+S.chat = { bmKey: null, messages: [], timer: null, gen: 0 };   // gen: 대화를 열 때마다 1씩 — 늦게 끝난 load()가 다른 현장 타이머를 남기지 않게
 const DATE_FIELDS = [['contract_date','계약일'],['start_date','착공일'],['ship_date','상차일'],['movein_date','희망입주일']];
 
 const setBadge = n => { const b = $('#pendingBadge'); b.textContent = n; b.classList.toggle('hidden', !n); fitHeader(); };   // 관리자 관리: 승인 대기 + 접수된 제보
 const FB_KIND = { bug:'버그', improve:'개선 요청', question:'질문' };
 const FB_STATUS = { open:'접수', doing:'처리 중', done:'완료' };
 const PLAT = { ios:'아이폰', android:'안드로이드', desktop:'PC' };
+
+// ---------- 안내 토스트 ----------
+// alert 대신 쓰는 짧은 안내: 화면 아래에 4초 띄우고 사라짐, 한 번에 하나만 (결정을 묻는 confirm은 그대로)
+let toastTimer = null;
+function toast(msg, isErr) {
+  let el = $('#toast'); if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  el.textContent = msg; el.classList.toggle('err', !!isErr); el.classList.remove('hidden');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+}
 
 // ---------- 상단 맞춤 ----------
 // 한 줄에 다 들어가는지 실제 너비로 판단 (역할 이름·배지·DB 시각 길이가 사람마다 달라서 고정 화면폭 기준 대신)
@@ -381,7 +393,7 @@ window.go = h => { location.hash = h; };
 window.openOwnerPreview = async bm => {
   const w = window.open('about:blank', '_blank');   // 팝업 차단을 피하려고 클릭 즉시 창부터 엶
   const { data, error } = await sb.rpc('create_preview_ticket', { p_bm_key: bm });
-  if (error || !data) { if (w) w.close(); alert('미리보기를 열지 못했어요: ' + (error?.message || '')); return; }
+  if (error || !data) { if (w) w.close(); toast('미리보기를 열지 못했어요: ' + (error?.message || ''), true); return; }
   const url = `${OWNER_APP_URL}/?preview=${encodeURIComponent(data)}`;
   if (w) { w.opener = null; w.location.href = url; } else location.href = url;
 };
@@ -397,7 +409,7 @@ async function boot() {
   await afterAuth();
 }
 async function afterAuth() {
-  if (!S.user) { S.me = null; $('#top').classList.add('hidden'); renderLogin(); return; }
+  if (!S.user) { closeChat(); S.me = null; $('#top').classList.add('hidden'); renderLogin(); return; }   // 세션이 끊기면 대화 폴링도 멈춤
   const { data: me, error } = await sb.from('admin_users').select('*').eq('id', S.user.id).maybeSingle();
   if (error || !me) { renderMsg('계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', true); return; }
   S.me = me;
@@ -418,7 +430,7 @@ window.signIn = async () => {
   const { error } = await sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + location.pathname } });
   if (error) renderMsg('로그인을 시작하지 못했습니다: ' + error.message, true);
 };
-window.signOut = async () => { await pushForget(); await sb.auth.signOut(); location.hash = ''; };
+window.signOut = async () => { closeChat(); await pushForget(); await sb.auth.signOut(); location.hash = ''; };
 
 // ---------- 데이터 ----------
 async function loadData() {
@@ -462,8 +474,26 @@ async function loadData() {
 function recompute() {
   S.computed = S.sites.map(site => { const row = toRow(site); let c = null; try { c = E.compute(row, S.itemsBy[site.bm_key] || []); } catch (e) { console.warn(site.bm_key, e); } return { site, row, c }; });
 }
-// 개발 확인용 훅 (데이터 접근 권한과 무관 — RLS가 서버에서 막음)
-window.__dbg = { S, recompute, toStage, renderList: () => renderList(), renderDetail: k => renderDetail(k), renderPending: () => renderPending() };
+// 개발 확인용 훅 — localStorage bm_debug=1 일 때만 window.__dbg 로 노출 (데이터 접근 권한과 무관 — RLS가 서버에서 막음)
+const DBG = { S, recompute, toStage, renderList: () => renderList(), renderDetail: k => renderDetail(k), renderPending: () => renderPending() };
+let debugOn = false; try { debugOn = localStorage.getItem('bm_debug') === '1'; } catch {}
+if (debugOn) window.__dbg = DBG;
+
+// ---------- 목록 자동 갱신 ----------
+// 앱을 켜 둔 채 두면 아무것도 안 바뀌므로: 화면이 다시 보이거나 창에 포커스가 오면 안 읽은 수를 다시 세고, 목록을 보고 있으면 행도 다시 그림
+// + 목록 화면이 보이는 동안 60초마다. 겹쳐 부르지 않게 진행 중 플래그
+const onListView = () => !location.hash || location.hash === '#sites';
+let listSyncing = false;
+async function syncList() {
+  if (listSyncing || !S.user || !S.me || !isApprovedRole(S.me.role) || document.visibilityState !== 'visible') return;
+  listSyncing = true;
+  try { await refreshUnread(); if (onListView() && document.getElementById('results')) renderRows(); }
+  catch (e) { console.warn('목록 갱신 실패', e); }
+  finally { listSyncing = false; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncList(); });
+window.addEventListener('focus', () => syncList());
+setInterval(() => { if (onListView()) syncList(); }, 60000);
 
 // ---------- 화면 ----------
 function render() {
@@ -711,7 +741,7 @@ function renderTable(rows) {
   $('#actPhones').onclick = e => copyText(phones.map(fmtPhone).join(', '), e.target, `${phones.length}개 복사됨 ✓`);
   if (!phones.length) $('#actSms').removeAttribute('href');
 }
-Object.assign(window.__dbg, { buildTSV, COLS, tableRows });
+Object.assign(DBG, { buildTSV, COLS, tableRows });
 
 // ----- 담당자 기본 숨김 규칙 -----
 // 설계 담당 = 실시도면 완료되면 숨김 / 인테리어 담당 = 설계(AD) 업무 전체 완료되면 숨김 / 영업 = 항상 표시
@@ -797,7 +827,7 @@ async function refreshUnread() {
   try { const archived = new Set((S.computed || []).filter(r => r.site.archived_at).map(r => r.site.bm_key));   // 보관 현장은 배지에서 뺌
     const n = Object.entries(S.unread).filter(([k]) => !archived.has(k)).reduce((a, [, v]) => a + v, 0); if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch {}
 }
-function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; }
+function closeChat() { if (S.chat.timer) clearInterval(S.chat.timer); S.chat.timer = null; S.chat.bmKey = null; S.chat.messages = []; S.chat.byCh = { staff: [], owner: [] }; S.chat.urls = {}; S.chat.pending = []; S.chat.sig = {}; S.chat.lastId = null; S.chat.justSent = null; }
 const BUCKET = 'chat-files', MAX_FILE = 10 * 1024 * 1024, IMG_MAX_EDGE = 1600, IMG_QUALITY = 0.85;
 const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
 const isImg = f => /^image\//.test(f.type || '');
@@ -815,31 +845,47 @@ async function shrinkImage(file, maxEdge = IMG_MAX_EDGE, quality = IMG_QUALITY) 
     return { blob, width: w, height: h, type: 'image/jpeg', renamed: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
   } catch { return { blob: file, type: file.type }; }
 }
-Object.assign(window.__dbg, { shrinkImage, renderMsgs: (e, ch) => renderMsgs(e, ch) });
+Object.assign(DBG, { shrinkImage, renderMsgs: (e, ch) => renderMsgs(e, ch) });
+const URL_TTL = 50 * 60 * 1000;   // 서명 링크는 60분짜리 — 50분 지나면 없는 셈 치고 다시 받음
 async function openChat(site) {
-  closeChat(); S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {}; S.chat.channel = 'staff'; S.chat.byCh = { staff: [], owner: [] };
+  closeChat(); const gen = ++S.chat.gen;   // 이 대화의 세대 — 바뀌었으면(다른 현장·닫힘) 늦게 끝난 load()는 아무것도 안 함
+  S.chat.bmKey = site.bm_key; S.chat.pending = []; S.chat.urls = {}; S.chat.channel = 'staff'; S.chat.byCh = { staff: [], owner: [] }; S.chat.sig = {}; S.chat.lastId = null;
   const both = talkOpen(site);   // 공간 Talk를 연 현장: 건축주톡·내부톡을 함께 불러 나란히 둠
   let first = true;
   const load = async () => {
+    if (S.chat.gen !== gen) return;
+    const firstLoad = first;
     let q = sb.from('site_messages').select('id, channel, user_id, sender_name, sender_role, target_role, call_owner, body, created_at, message_files(id, path, name, size, mime, width, height, deleted_at)').eq('bm_key', site.bm_key);
     if (!both) q = q.eq('channel', 'staff');
     const { data, error } = await q.order('created_at', { ascending:false }).limit(both ? 600 : 300);   // 최신 기준으로 가져와 시간순으로
-    if (S.chat.bmKey !== site.bm_key) return;
+    if (S.chat.gen !== gen || S.chat.bmKey !== site.bm_key) return;
     const all = (data || []).slice().reverse();
     S.chat.byCh = { staff: all.filter(m => m.channel !== 'owner'), owner: all.filter(m => m.channel === 'owner') };
     // 처음 열 때: 가장 최근 메시지가 있는 톡으로 (건축주 메시지 알림을 눌러 들어온 경우 바로 보이게)
     if (first && both && all.length && all[all.length - 1].channel === 'owner') S.chat.channel = 'owner';
     first = false;
     S.chat.messages = S.chat.byCh[S.chat.channel];
-    const paths = all.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !S.chat.urls[p]);
-    if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = s.signedUrl; }); }
-    if (S.chat.bmKey !== site.bm_key) return;
-    renderMsgs(error, 'staff'); if (both) renderMsgs(error, 'owner');
-    if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
-    if (S.calls[site.bm_key]) delete S.calls[site.bm_key];
-    sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
+    const now = Date.now();
+    const paths = all.flatMap(m => (m.message_files || []).filter(f => !f.deleted_at).map(f => f.path)).filter(p => !(S.chat.urls[p] && S.chat.urls[p].exp > now));
+    if (paths.length) { const { data: signed } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600); (signed || []).forEach(s => { if (s.signedUrl) S.chat.urls[s.path] = { u: s.signedUrl, exp: now + URL_TTL }; }); }
+    if (S.chat.gen !== gen || S.chat.bmKey !== site.bm_key) return;
+    // 바뀐 톡만 다시 그림: 메시지 id·첨부 수·삭제 가능 여부로 서명을 만들어 비교 (20초마다 전부 다시 그리면 스크롤·링크가 튐). 링크를 새로 받았으면 다시 그림
+    const sigOf = list => list.map(m => { const fs = m.message_files || []; return `${m.id}:${fs.length}:${fs.filter(f => f.deleted_at).length}:${m.user_id === S.me.id && now - new Date(m.created_at).getTime() < 5 * 60 * 1000 ? 1 : 0}`; }).join(',');
+    for (const ch of both ? ['staff', 'owner'] : ['staff']) {
+      const sg = error ? 'err:' + error.message : sigOf(S.chat.byCh[ch]);
+      if (S.chat.sig[ch] !== sg || paths.length) { S.chat.sig[ch] = sg; renderMsgs(error, ch); }
+    }
+    // 읽음 처리: 처음 열 때 한 번 + 새 메시지가 왔을 때(마지막 id가 바뀜) 화면이 보이는 동안만 — 20초마다 매번 부르지 않음, 숨긴 탭에서는 읽은 걸로 치지 않음
+    const lastId = all.length ? all[all.length - 1].id : null;
+    const arrived = lastId !== S.chat.lastId; S.chat.lastId = lastId;
+    if (firstLoad || (arrived && document.visibilityState === 'visible')) {
+      if (S.unread[site.bm_key]) delete S.unread[site.bm_key];
+      if (S.calls[site.bm_key]) delete S.calls[site.bm_key];
+      sb.rpc('mark_read', { p_bm_key: site.bm_key }).then(() => {});
+    }
   };
   await load();
+  if (S.chat.gen !== gen || S.chat.bmKey !== site.bm_key) return;   // 기다리는 사이 다른 화면으로 갔으면 타이머를 만들지 않음
   S.chat.timer = setInterval(load, 20000);
   const inp = $('#msgInp'); if (!inp) return;
   const INP_MAX = 118;   // CSS max-height와 같게 (5줄)
@@ -909,8 +955,8 @@ async function openChat(site) {
   $('#attBtn').onclick = () => attInp.click();
   attInp.onchange = () => {
     for (const f of attInp.files) {
-      if (f.size > MAX_FILE && !isImg(f)) { alert(`${f.name}: 파일당 10MB까지 올릴 수 있어요 (${fmtSize(f.size)})`); continue; }
-      if (S.chat.pending.length >= 10) { alert('한 번에 10개까지 첨부할 수 있어요'); break; }
+      if (f.size > MAX_FILE && !isImg(f)) { toast(`${f.name}: 파일당 10MB까지 올릴 수 있어요 (${fmtSize(f.size)})`, true); continue; }
+      if (S.chat.pending.length >= 10) { toast('한 번에 10개까지 첨부할 수 있어요', true); break; }
       S.chat.pending.push(f);
     }
     attInp.value = ''; renderPending();
@@ -926,11 +972,11 @@ async function openChat(site) {
       for (const f of files) {
         let blob = f, meta = { type: f.type }, name = f.name;
         if (isImg(f) && !orig) { meta = await shrinkImage(f); blob = meta.blob; if (meta.renamed) name = meta.renamed; }
-        if (blob.size > MAX_FILE) { alert(`${f.name}: 축소 후에도 10MB를 넘어 건너뜁니다`); continue; }
+        if (blob.size > MAX_FILE) { toast(`${f.name}: 축소 후에도 10MB를 넘어 건너뜁니다`, true); continue; }
         const ext = (name.match(/\.([a-zA-Z0-9]{1,6})$/) || [, 'bin'])[1].toLowerCase();
         const path = `${site.bm_key}/${crypto.randomUUID()}.${ext}`;
         const { error: e1 } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: meta.type || blob.type || 'application/octet-stream', upsert: false });
-        if (e1) { alert(`${f.name} 업로드 실패: ${e1.message}`); continue; }
+        if (e1) { toast(`${f.name} 업로드 실패: ${e1.message}`, true); continue; }
         uploaded.push({ path, name, size: blob.size, mime: meta.type || blob.type || null, width: meta.width || null, height: meta.height || null });
       }
       if (!body && !uploaded.length) throw new Error('올라간 파일이 없어 메시지를 보내지 않았습니다');
@@ -940,10 +986,11 @@ async function openChat(site) {
       if (error) { if (uploaded.length) await sb.storage.from(BUCKET).remove(uploaded.map(u => u.path)); throw error; }
       S.chat.target = null; renderTargets();
       // 3) 파일 메타 저장
-      if (uploaded.length) { const { error: e2 } = await sb.from('message_files').insert(uploaded.map(u => ({ message_id: msg.id, bm_key: site.bm_key, ...u }))); if (e2) alert('파일 정보 저장 실패: ' + e2.message); }
+      if (uploaded.length) { const { error: e2 } = await sb.from('message_files').insert(uploaded.map(u => ({ message_id: msg.id, bm_key: site.bm_key, ...u }))); if (e2) toast('파일 정보 저장 실패: ' + e2.message, true); }
       inp.value = ''; growInput(); S.chat.pending = []; renderPending();
+      S.chat.justSent = ch;   // 방금 보낸 톡은 다시 그릴 때 맨 아래로
       await load();
-    } catch (e) { alert('전송 실패: ' + (e.message || e)); }
+    } catch (e) { toast('전송 실패: ' + (e.message || e), true); }
     inp.disabled = false; $('#msgSend').disabled = false; $('#attBtn').disabled = false; inp.focus();
   };
   $('#msgSend').onclick = send;
@@ -954,7 +1001,7 @@ function renderAtt(m) {
   const fs = m.message_files || []; if (!fs.length) return '';
   return `<div class="att">${fs.map(f => {
     if (f.deleted_at) return `<span class="gone">용량 정리로 삭제됨 · ${esc(f.name)} (${fmtDate(f.created_at || m.created_at)})</span>`;
-    const url = S.chat.urls[f.path]; if (!url) return `<span class="gone">${esc(f.name)}</span>`;
+    const u = S.chat.urls[f.path]; const url = u && u.exp > Date.now() ? u.u : null; if (!url) return `<span class="gone">${esc(f.name)}</span>`;
     return /^image\//.test(f.mime || '') ? `<a href="${url}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>`
       : `<a class="file" href="${url}" target="_blank" rel="noopener" download="${esc(f.name)}">${ic('file')} <span>${esc(f.name)}</span> <span class="sub">${fmtSize(f.size)}</span></a>`;
   }).join('')}</div>`;
@@ -966,6 +1013,9 @@ function renderMsgs(error, ch = S.chat.channel) {
   const list = (S.chat.byCh && S.chat.byCh[ch]) || [];
   if (error) { el.innerHTML = `<div class="err">대화를 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
   if (!list.length) { el.innerHTML = '<div class="sub" style="text-align:center;padding:14px">아직 메시지가 없습니다. 첫 메시지를 남겨 보세요.</div>'; return; }
+  // 맨 아래로 내리는 건: 이 대화의 첫 그리기 / 이미 아래쪽을 보고 있었을 때 / 방금 보냈을 때 — 위로 올려 읽는 중이면 그대로 둠
+  const firstDraw = !el.dataset.drawn; el.dataset.drawn = '1';
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   let lastDay = '';
   el.innerHTML = list.map(m => {
     const d = new Date(m.created_at);
@@ -974,14 +1024,16 @@ function renderMsgs(error, ch = S.chat.channel) {
     const mine = m.user_id === S.me.id; const canDel = mine && Date.now() - d.getTime() < 5 * 60 * 1000;
     return `${sep}<div class="msg ${mine ? 'mine' : ''}"><div class="meta">${esc(m.sender_name)}${m.sender_role ? ` <span class="r ${m.sender_role === '건축주' ? 'owner' : ''}">${esc(m.sender_role)}</span>` : ''} · ${d.toLocaleTimeString('ko-KR', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' })}${canDel ? ` <button class="del" data-del="${m.id}" title="5분 안에만 삭제할 수 있어요">×</button>` : ''}</div>${m.target_role || m.call_owner ? `<div><span class="call-tag">${ic('call')} ${esc(m.call_owner ? '건축주' : m.target_role)} 호출</span></div>` : ''}${m.body ? `<div class="b">${esc(m.body).replace(/\n/g, '<br>')}</div>` : ''}${renderAtt(m)}</div>`;
   }).join('');
-  el.scrollTop = el.scrollHeight;
+  if (firstDraw || nearBottom || S.chat.justSent === ch) el.scrollTop = el.scrollHeight;
+  if (S.chat.justSent === ch) S.chat.justSent = null;
   el.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('이 메시지를 삭제할까요?')) return;
     const m = list.find(x => String(x.id) === b.dataset.del);
+    // 행을 먼저 지우고(실패하면 여기서 끝) 그 다음 파일 — 파일부터 지우면 행 삭제가 실패했을 때 파일만 사라짐
+    const { error } = await sb.from('site_messages').delete().eq('id', b.dataset.del);
+    if (error) { toast('삭제 실패: ' + error.message, true); return; }
     const paths = (m?.message_files || []).filter(f => !f.deleted_at).map(f => f.path);
     if (paths.length) await sb.storage.from(BUCKET).remove(paths);
-    const { error } = await sb.from('site_messages').delete().eq('id', b.dataset.del);
-    if (error) { alert('삭제 실패: ' + error.message); return; }
     S.chat.byCh[ch] = list.filter(x => String(x.id) !== b.dataset.del); if (ch === S.chat.channel) S.chat.messages = S.chat.byCh[ch]; renderMsgs(null, ch);
   });
 }
@@ -1007,7 +1059,7 @@ function renderDetail(key) {
     return `<div class="stg ${cl}"><span class="m">${mark}</span><span class="t">${st.index + 1}. ${esc(st.title)}</span><span class="c ${chk && chk.status === 'partial' ? 'p' : ''}">${note}</span></div>${sub}`;
   }).join('') : '<div class="sub">판정 불가</div>';
   const pay = c ? c.payment : null;
-  $('#main').innerHTML = `<button class="btn sm back" onclick="history.length > 1 ? history.back() : go('#sites')">← 목록</button>
+  $('#main').innerHTML = `<button class="btn sm back" onclick="go('#sites')">← 목록</button>
   <div class="ptabs" id="ptabs"><button data-p="0" class="on">현장 정보</button><button data-p="1" class="talk-tab">${ic('msg')} 공간 Talk${S.unread[key] ? `<span class="ubadge">${S.unread[key]}</span>` : ''}</button></div>
   <div class="grid" id="grid">
     <div>
@@ -1091,7 +1143,7 @@ async function renderFeedback() {
   const say = (m, err) => { const el = $('#fbMsg'); if (el) { el.textContent = m; el.style.color = err ? 'var(--red)' : 'var(--green)'; } };
   const showPend = () => { $('#fbPending').textContent = pend.length ? pend.map(f => f.name).join(', ') + ` (${pend.length}장)` : ''; };
   $('#fbAtt').onclick = () => $('#fbFile').click();
-  $('#fbFile').onchange = e => { for (const f of e.target.files) { if (pend.length >= 3) { alert('스크린샷은 3장까지 첨부할 수 있어요'); break; } if (isImg(f)) pend.push(f); } e.target.value = ''; showPend(); };
+  $('#fbFile').onchange = e => { for (const f of e.target.files) { if (pend.length >= 3) { toast('스크린샷은 3장까지 첨부할 수 있어요', true); break; } if (isImg(f)) pend.push(f); } e.target.value = ''; showPend(); };
   $('#fbSend').onclick = async () => {
     const body = $('#fbBody').value.trim(); if (!body) { say('내용을 적어 주세요', true); return; }
     const btn = $('#fbSend'); btn.disabled = true; say('보내는 중…');
@@ -1128,10 +1180,15 @@ const isAndroid = /Android/.test(navigator.userAgent);
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const platformOf = () => isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
 const b64ToBytes = s => { const p = '='.repeat((4 - s.length % 4) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+let swListening = false;   // pushInit은 로그인할 때마다 불리므로 'message' 리스너는 한 번만
 async function pushInit() {
   if (!('serviceWorker' in navigator)) return;
   try { PUSH.reg = await navigator.serviceWorker.register('sw.js'); } catch (e) { console.warn('sw 등록 실패', e); return; }
-  navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'open' && e.data.hash) { if (e.data.hash.startsWith('#site/')) S.wantChat = true; location.hash = e.data.hash; if (location.hash === e.data.hash) render(); } });
+  if (!swListening) {
+    swListening = true;
+    // 알림을 눌러 열기: 해시가 바뀌면 hashchange가 그리므로, 이미 그 화면이었을 때만 직접 그림 (두 번 그리지 않게)
+    navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'open' && e.data.hash) { if (e.data.hash.startsWith('#site/')) S.wantChat = true; const same = location.hash === e.data.hash; location.hash = e.data.hash; if (same) render(); } });
+  }
   if (!PUSH.supported) return;
   PUSH.sub = await PUSH.reg.pushManager.getSubscription().catch(() => null);
   if (PUSH.sub) await pushSave(PUSH.sub);          // 마지막 확인 시각 갱신
@@ -1172,7 +1229,7 @@ async function pushTest() {
   if (error) throw error;
   return data;
 }
-Object.assign(window.__dbg, { PUSH, pushEnable, pushForget, pushTest });
+Object.assign(DBG, { PUSH, pushEnable, pushForget, pushTest });
 const uaLabel = ua => { ua = ua || ''; const b = /SamsungBrowser/.test(ua) ? 'Samsung 인터넷' : /Edg\//.test(ua) ? 'Edge' : /CriOS/.test(ua) ? 'Chrome(iOS)' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox/.test(ua) ? 'Firefox' : '브라우저'; return b; };
 async function renderNotify() {
   const sup = PUSH.supported, perm = sup ? Notification.permission : 'unsupported';
@@ -1251,9 +1308,12 @@ async function renderUsers() {
   const usageHtml = `<div class="usage">대화 파일 저장소 <b>${usedMB.toFixed(1)}MB</b> / ${limitMB}MB 사용 중 · 한도를 넘으면 가장 오래된 파일부터 자동 삭제됩니다</div>`;
   // 휴일 관리: 이 날짜에는 푸시를 보류하고 다음 근무일 아침 요약으로 묶음 (주말은 자동)
   const hols = holRes.data || [];
-  const holHtml = `<details class="card" style="margin-bottom:12px;padding:12px 16px"><summary style="cursor:pointer;font-weight:600">${ic('clock')} 휴일 관리 <span class="sub" style="font-weight:400">· 앞으로 ${hols.length}일 등록 · 푸시 알림은 평일 08:00~17:00에만, 등록된 휴일에는 보류</span></summary>
+  // 10월부터: 내년 공휴일이 하나도 없으면 경고 — 등록하지 않으면 내년 휴일에도 근무일처럼 바로 푸시가 감
+  const nextYear = new Date().getFullYear() + 1;
+  const holWarn = new Date().getMonth() >= 9 && !hols.some(h => String(h.day).startsWith(nextYear + '-')) ? `<div class="notice" style="margin-top:8px">내년(${nextYear}) 공휴일이 아직 없어요 — 등록하지 않으면 근무일로 처리돼요</div>` : '';
+  const holHtml = `<details class="card" id="holPanel" style="margin-bottom:12px;padding:12px 16px"><summary style="cursor:pointer;font-weight:600">${ic('clock')} 휴일 관리 <span class="sub" style="font-weight:400">· 앞으로 ${hols.length}일 등록 · 푸시 알림은 평일 08:00~17:00에만, 등록된 휴일에는 보류</span></summary>
     <div class="tools" style="margin:10px 0 6px"><input type="date" id="holDay"><input type="text" id="holName" placeholder="휴일 이름 (예: 창립기념일)" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;flex:1 1 160px"><button class="btn sm" id="holAdd">추가</button></div>
-    <div id="holList">${hols.length ? hols.map(h => `<div class="dev"><span class="t">${fmtDate(h.day)} <span class="sub" style="display:inline">${['일','월','화','수','목','금','토'][new Date(h.day + 'T00:00:00').getDay()]}</span> · ${esc(h.name)}</span><button class="btn sm" data-hol="${h.day}">삭제</button></div>`).join('') : '<div class="sub">등록된 휴일이 없어요</div>'}</div>
+    <div id="holList">${hols.length ? hols.map(h => `<div class="dev"><span class="t">${fmtDate(h.day)} <span class="sub" style="display:inline">${['일','월','화','수','목','금','토'][new Date(h.day + 'T00:00:00').getDay()]}</span> · ${esc(h.name)}</span><button class="btn sm" data-hol="${h.day}">삭제</button></div>`).join('') : '<div class="sub">등록된 휴일이 없어요</div>'}</div>${holWarn}
     <div class="sub" style="margin-top:6px">법정 공휴일은 2027년까지 미리 넣어 두었어요. 회사 자체 휴무(근로자의날·창립기념일 등)는 여기서 추가하세요.</div></details>`;
   const pending = S.users.filter(u => u.role === 'pending').length;
   setBadge(pending + S.openFb);
@@ -1292,16 +1352,16 @@ async function renderUsers() {
   });
   $('#holAdd').onclick = async () => {
     const day = $('#holDay').value, name = $('#holName').value.trim();
-    if (!day || !name) { alert('날짜와 이름을 입력해 주세요'); return; }
+    if (!day || !name) { toast('날짜와 이름을 입력해 주세요', true); return; }
     const { error } = await sb.from('holidays').upsert({ day, name });
-    if (error) { alert('저장 실패: ' + error.message); return; }
-    renderUsers().then(() => { const d = document.querySelector('details.card'); if (d) d.open = true; });
+    if (error) { toast('저장 실패: ' + error.message, true); return; }
+    renderUsers().then(() => { const d = $('#holPanel'); if (d) d.open = true; });   // 휴일 패널을 다시 펼침 (첫 details = 제보 패널이 아니라)
   };
   document.querySelectorAll('button[data-hol]').forEach(b => b.onclick = async () => {
     if (!confirm(`${fmtDate(b.dataset.hol)} 휴일을 삭제할까요?`)) return;
     const { error } = await sb.from('holidays').delete().eq('day', b.dataset.hol);
-    if (error) { alert('삭제 실패: ' + error.message); return; }
-    renderUsers().then(() => { const d = document.querySelector('details.card'); if (d) d.open = true; });
+    if (error) { toast('삭제 실패: ' + error.message, true); return; }
+    renderUsers().then(() => { const d = $('#holPanel'); if (d) d.open = true; });   // 휴일 패널을 다시 펼침 (첫 details = 제보 패널이 아니라)
   });
 }
 
