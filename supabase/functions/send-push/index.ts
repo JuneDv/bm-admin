@@ -1,7 +1,10 @@
 // 현장 대화(공간 Talk) · 버그 제보 → 웹 푸시(VAPID) 전송
 //  GET                : VAPID 공개키 반환 (없으면 생성해 push_config 에 저장 — 비밀키는 DB 밖으로 나가지 않음)
-//  POST {message_id}  : DB 트리거(pg_net)가 호출. 근무시간(평일 08~17 KST, 공휴일 제외)에만 즉시 전송, 그 외에는 'deferred' 표시만
-//  POST {digest:true} : pg_cron 이 평일 08:30 KST 에 호출. 보류된 메시지를 사용자별로 묶어 "n건 왔어요" 한 번 전송 (dry:true 면 집계만)
+//  POST {message_id}  : DB 트리거(pg_net)가 호출.
+//     직원: 근무시간(평일 08~17 KST, 공휴일 제외)에만 즉시 전송, 그 외에는 'deferred' 표시만 (아침 요약)
+//     건축주: 기기별 설정(push_subscriptions.owner_mode·quiet)대로 — 조용한 시간(기본 21~8시)이 아니면 바로, 그 사이면 끝날 때 요약
+//  POST {digest:true} : pg_cron 이 평일 08:30 KST 에 호출. 직원의 보류 메시지를 사용자별로 묶어 "n건 왔어요" 한 번 전송 (dry:true 면 집계만)
+//  POST {owner_digest:true} : pg_cron 이 매시 호출. 조용한 시간이 끝난(또는 '하루 한 번' 8시) 건축주 기기에 그동안 쌓인 메시지 요약
 //  POST {feedback_id} : 버그 제보 → 운영자 기기로 즉시. event:'reply' 이면 제보자에게 답변·상태 변경 알림 (근무시간 무관)
 //  POST {test:true}   : 로그인 사용자 본인 기기로 테스트 알림 (Authorization: Bearer <user jwt>) — 근무시간 무관
 // 수신자는 RPC push_recipients 가 판정(직원 + 건축주톡이면 연결된 건축주), pushed_at 으로 중복 방지.
@@ -100,16 +103,30 @@ async function ownerIds(userIds: string[]): Promise<Set<string>> {
   return new Set((data ?? []).map((r: { user_id: string }) => r.user_id));
 }
 
+// 한국시간 시(0~23)
+const kstHour = () => Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", hour: "numeric", hourCycle: "h23" }).format(new Date())) % 24;
+// 조용한 시간 'H-H' (null = 기본 21-8, 'off' = 사용 안 함)
+function inQuiet(quiet: string | null, h: number) {
+  const q = quiet ?? "21-8";
+  if (q === "off") return false;
+  const [a, b] = q.split("-").map(Number);
+  if (!(a >= 0 && b >= 0) || a === b) return false;
+  return a < b ? h >= a && h < b : h >= a || h < b;
+}
+type OwnerPref = { id: number; owner_mode: string; quiet: string | null };
+async function ownerPrefs(subIds: number[]): Promise<Map<number, OwnerPref>> {
+  if (!subIds.length) return new Map();
+  const { data } = await sb.from("push_subscriptions").select("id, owner_mode, quiet").in("id", subIds);
+  return new Map((data ?? []).map((r: OwnerPref) => [r.id, r]));
+}
+
 async function handleMessage(id: number) {
-  // 근무시간 밖: 보류 표시만 (pushed_at 은 비워 둠 → 아침 요약이 집계)
-  if (!(await isWorkTime())) {
-    const { data } = await sb.from("site_messages").update({ push_result: "deferred" }).eq("id", id).is("pushed_at", null).select("id");
-    return json({ deferred: !!data?.length });
-  }
-  const { data: msg, error } = await sb.from("site_messages")
-    .update({ pushed_at: new Date().toISOString() })
-    .eq("id", id).is("pushed_at", null)
-    .select("id, bm_key, channel, sender_name, sender_role, target_role, call_owner, body, user_id").maybeSingle();
+  // 처리 표시로 중복 방지: 근무시간이면 pushed_at, 아니면 push_result='deferred'(pushed_at 비움 → 직원 아침 요약이 집계)
+  const work = await isWorkTime();
+  const cols = "id, bm_key, channel, sender_name, sender_role, target_role, call_owner, body, user_id";
+  const { data: msg, error } = work
+    ? await sb.from("site_messages").update({ pushed_at: new Date().toISOString() }).eq("id", id).is("pushed_at", null).select(cols).maybeSingle()
+    : await sb.from("site_messages").update({ push_result: "deferred" }).eq("id", id).is("pushed_at", null).is("push_result", null).select(cols).maybeSingle();
   if (error) throw error;
   if (!msg) return json({ skipped: "already handled" });
 
@@ -124,7 +141,17 @@ async function handleMessage(id: number) {
   const ownerCh = msg.channel === "owner";
   const list: Sub[] = subs ?? [];
   const owners = await ownerIds([...new Set(list.map((s) => s.user_id))]);
-  const ownerSubs = list.filter((s) => owners.has(s.user_id)), staffSubs = list.filter((s) => !owners.has(s.user_id));
+  // 직원: 근무시간에만 / 건축주: 기기 설정대로 (호출만 받기면 호출만, 하루 한 번이면 요약으로, 조용한 시간이면 끝날 때 요약)
+  const staffSubs = work ? list.filter((s) => !owners.has(s.user_id)) : [];
+  const prefs = await ownerPrefs(list.filter((s) => owners.has(s.user_id)).map((s) => s.sub_id));
+  const h = kstHour();
+  const ownerSubs = list.filter((s) => {
+    if (!owners.has(s.user_id)) return false;
+    const p = prefs.get(s.sub_id); const mode = p?.owner_mode ?? "instant";
+    if (mode === "digest") return false;
+    if (mode === "calls" && !msg.call_owner) return false;
+    return !inQuiet(p?.quiet ?? null, h);
+  });
   const topic = String(msg.bm_key).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || undefined;
 
   // 직원(관리자 앱)
@@ -147,9 +174,12 @@ async function handleMessage(id: number) {
   };
   let res = emptyRes();
   if (staffSubs.length) res = addRes(res, await sendTo(staffSubs, staffPayload, { ttl: 86400, urgency: staffCall ? webpush.Urgency.High : webpush.Urgency.Normal, topic }));
-  if (ownerSubs.length) res = addRes(res, await sendTo(ownerSubs, ownerPayload, { ttl: 86400, urgency: ownerCall ? webpush.Urgency.High : webpush.Urgency.Normal, topic: topic ? `t${topic}`.slice(0, 32) : undefined }));
-  const summary = `recipients ${list.length} (owners ${ownerSubs.length}), sent ${res.sent}, gone ${res.gone}, failed ${res.failed}` + (res.errors.length ? " | " + res.errors.join("; ").slice(0, 300) : "");
-  await sb.from("site_messages").update({ push_result: summary }).eq("id", id);
+  if (ownerSubs.length) {
+    res = addRes(res, await sendTo(ownerSubs, ownerPayload, { ttl: 86400, urgency: ownerCall ? webpush.Urgency.High : webpush.Urgency.Normal, topic: topic ? `t${topic}`.slice(0, 32) : undefined }));
+    await sb.from("push_subscriptions").update({ last_push_at: new Date().toISOString() }).in("id", ownerSubs.map((s) => s.sub_id));
+  }
+  const summary = `recipients ${list.length} (owners now ${ownerSubs.length}), sent ${res.sent}, gone ${res.gone}, failed ${res.failed}` + (res.errors.length ? " | " + res.errors.join("; ").slice(0, 300) : "");
+  if (work) await sb.from("site_messages").update({ push_result: summary }).eq("id", id);   // 근무시간 밖은 'deferred' 유지 (직원 요약용)
   console.log(JSON.stringify({ message_id: id, ...res, recipients: list.length, owners: ownerSubs.length }));
   return json({ ok: true, recipients: list.length, owners: ownerSubs.length, ...res });
 }
@@ -166,22 +196,45 @@ async function handleDigest(dry: boolean) {
   const owners = await ownerIds(rows.map((r) => r.user_id));
   const out: Record<string, unknown>[] = [];
   for (const r of rows) {
+    if (owners.has(r.user_id)) continue;   // 건축주는 owner_digest(조용한 시간 끝)에서
     const subs = await subsOf([r.user_id]);
     if (!subs.length) { out.push({ user: r.user_id, devices: 0 }); continue; }
     const n = Number(r.n), sites = Number(r.sites), calls = Number(r.calls);
-    const payload: Payload = owners.has(r.user_id)
-      ? { title: "공간 Talk", body: `담당자에게서 새 메시지 ${n}건이 왔어요`, tag: "digest-talk", hash: "", url: "./", call: false }
-      : {
-        title: "공간제작소 관리자",
-        body: `근무시간 외에 새 메시지 ${n}건이 왔어요 (현장 ${sites}곳${calls ? `, 📣 호출 ${calls}건 포함` : ""})`,
-        tag: "digest", hash: "#sites", call: calls > 0,
-      };
+    const payload: Payload = {
+      title: "공간제작소 관리자",
+      body: `근무시간 외에 새 메시지 ${n}건이 왔어요 (현장 ${sites}곳${calls ? `, 📣 호출 ${calls}건 포함` : ""})`,
+      tag: "digest", hash: "#sites", call: calls > 0,
+    };
     const res = await sendTo(subs, payload, { ttl: 6 * 3600, urgency: calls ? webpush.Urgency.High : webpush.Urgency.Normal, topic: "digest" });
-    out.push({ user: r.user_id, devices: subs.length, n, sites, calls, owner: owners.has(r.user_id), ...res });
+    out.push({ user: r.user_id, devices: subs.length, n, sites, calls, ...res });
   }
   const { data: marked } = await sb.from("site_messages").update({ pushed_at: new Date().toISOString(), push_result: "digest" }).is("pushed_at", null).eq("push_result", "deferred").select("id");
   console.log(JSON.stringify({ digest: out, marked: marked?.length ?? 0 }));
   return json({ ok: true, users: out, marked: marked?.length ?? 0 });
+}
+
+// 건축주 요약: 조용한 시간이 끝난(또는 '하루 한 번' 8시) 기기에 그동안 쌓인 메시지 수
+type OwnerDigestRow = { sub_id: number; user_id: string; endpoint: string; p256dh: string; auth: string; n: number; calls: number; sites: number; one_site: string };
+async function handleOwnerDigest(dry: boolean, hour?: number) {
+  const h = hour ?? kstHour();
+  const { data, error } = await sb.rpc("owner_digest_due", { p_hour: h });
+  if (error) throw error;
+  const rows: OwnerDigestRow[] = data ?? [];
+  if (dry) return json({ dry: true, hour: h, devices: rows.map((r) => ({ sub: r.sub_id, n: r.n, calls: r.calls, sites: r.sites })) });
+  let res = emptyRes();
+  for (const r of rows) {
+    const n = Number(r.n), calls = Number(r.calls), one = Number(r.sites) === 1;
+    const payload: Payload = {
+      title: calls ? "📣 공간 Talk · 건축주님 호출" : "공간 Talk",
+      body: `담당자에게서 새 메시지 ${n}건이 와 있어요${calls ? ` (호출 ${calls}건 포함)` : ""}`,
+      tag: "digest-talk", hash: "", url: one ? `./?talk=${encodeURIComponent(r.one_site)}` : "./", call: calls > 0,
+    };
+    res = addRes(res, await sendTo([{ user_id: r.user_id, sub_id: r.sub_id, endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth }], payload,
+      { ttl: 6 * 3600, urgency: calls ? webpush.Urgency.High : webpush.Urgency.Normal, topic: "digest-talk" }));
+    await sb.from("push_subscriptions").update({ last_push_at: new Date().toISOString() }).eq("id", r.sub_id);
+  }
+  console.log(JSON.stringify({ owner_digest: h, devices: rows.length, ...res }));
+  return json({ ok: true, hour: h, devices: rows.length, ...res });
 }
 
 // 버그 제보: 새 제보 → 운영자(owner) 전원 / 답변·상태 변경 → 제보자
@@ -243,6 +296,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     if (body.test) return await handleTest(req, body);
     if (body.digest) return await handleDigest(!!body.dry);
+    // hour 지정은 집계 확인(dry)에서만 — 공개 호출로 엉뚱한 시각에 요약이 나가지 않게
+    if (body.owner_digest) return await handleOwnerDigest(!!body.dry, body.dry && typeof body.hour === "number" ? body.hour : undefined);
     if (body.feedback_id) return await handleFeedback(Number(body.feedback_id), body.event);
     if (body.message_id) return await handleMessage(Number(body.message_id));
     return json({ error: "bad request" }, 400);
