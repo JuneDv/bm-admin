@@ -7,8 +7,8 @@
 //  POST {owner_digest:true} : pg_cron 이 매시 호출. 조용한 시간이 끝난(또는 '하루 한 번' 8시) 건축주 기기에 그동안 쌓인 메시지 요약
 //  POST {feedback_id} : 버그 제보 → 운영자 기기로 즉시. event:'reply' 이면 제보자에게 답변·상태 변경 알림 (근무시간 무관)
 //  POST {test:true}   : 로그인 사용자 본인 기기로 테스트 알림 (Authorization: Bearer <user jwt>) — 근무시간 무관
-//  POST {stage_notify:true} : pg_cron 이 매시 호출. 건축주가 연결된 현장의 공사 단계를 다시 계산해(stage-engine.js — 건축주 앱과 같은 파일)
-//     앞 단계로 넘어갔으면 그 현장 건축주 기기에 "○○ 단계로 넘어갔어요" (기기별 1번, 조용한 시간이면 끝난 뒤, '호출만 받기'는 제외, 사흘 지나면 안 보냄)
+//  POST {stage_notify:true} : Jira 동기화가 끝나면(sync_runs 기록 트리거) 호출. 건축주가 연결된 현장의 공사 단계를 다시 계산해(stage-engine.js — 건축주 앱과 같은 파일)
+//     앞 단계로 넘어갔으면 그 현장 건축주 기기 전부에 "○○ 단계로 넘어갔어요" (알림 방식과 무관, 기기별 1번, 조용한 시간이면 다음 동기화 때, 사흘 지나면 안 보냄)
 // 수신자는 RPC push_recipients 가 판정(직원 + 건축주톡이면 연결된 건축주), pushed_at 으로 중복 방지.
 // 건축주(owner_users)에게는 건축주 앱용 문구·주소(url)로, 직원에게는 관리자 앱용(hash)으로 보냄
 // 내부 호출(DB 트리거·cron)은 x-internal-key 헤더(Vault 'push_internal_key')로 확인 — 없으면 거절. GET(공개키)·test(사용자 토큰)만 열어 둠
@@ -351,7 +351,7 @@ async function handleStageNotify(dry: boolean) {
   if (dry) return json({ dry: true, sites: upserts.length, changed, first: upserts.filter((u) => !prevBy.has(String(u.bm_key))).length });
   if (upserts.length) { const { error } = await sb.from("site_stage").upsert(upserts, { onConflict: "bm_key" }); if (error) throw error; }
 
-  // 2) 사흘 안에 넘어간 단계 → 아직 안 보낸 건축주 기기로 (조용한 시간·'호출만 받기'·'하루 한 번'(8시에만) 반영)
+  // 2) 사흘 안에 넘어간 단계 → 아직 안 보낸 건축주 기기로 (단계 알림은 '호출만 받기'·'하루 한 번' 기기에도 보냄, 조용한 시간만 피함)
   const since = new Date(Date.now() - 3 * 864e5).toISOString();
   const { data: pending } = await sb.from("site_stage").select("bm_key, stage_id, stage_idx, title, changed_at").in("bm_key", keys).gte("changed_at", since);
   const h = kstHour();
@@ -360,12 +360,11 @@ async function handleStageNotify(dry: boolean) {
     const users = [...new Set((links ?? []).filter((l: { bm_key: string }) => l.bm_key === p.bm_key).map((l: { user_id: string }) => l.user_id))];
     if (!users.length) continue;
     const [{ data: subRows }, { data: sent }] = await Promise.all([
-      sb.from("push_subscriptions").select("user_id, id, endpoint, p256dh, auth, owner_mode, quiet").in("user_id", users),
+      sb.from("push_subscriptions").select("user_id, id, endpoint, p256dh, auth, quiet").in("user_id", users),
       sb.from("stage_push_log").select("sub_id").eq("bm_key", p.bm_key).eq("stage_id", p.stage_id),
     ]);
     const done = new Set((sent ?? []).map((x: { sub_id: number }) => x.sub_id));
-    const due = (subRows ?? []).filter((r: { id: number; owner_mode: string; quiet: string | null }) =>
-      !done.has(r.id) && r.owner_mode !== "calls" && (r.owner_mode === "digest" ? h === 8 : !inQuiet(r.quiet, h)));
+    const due = (subRows ?? []).filter((r: { id: number; quiet: string | null }) => !done.has(r.id) && !inQuiet(r.quiet, h));
     if (!due.length) continue;
     const payload: Payload = {
       title: `${nameOf.get(p.bm_key) || p.bm_key} · 공사 단계`,
