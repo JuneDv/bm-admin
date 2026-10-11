@@ -3,7 +3,7 @@
 //  · 지난 미리보기 확인값 (10분짜리, 하루 지난 것)
 //  · Jira 웹훅 이벤트 로그 90일 지난 것
 //  · 보관된 지 1년 넘은 현장의 대화 첨부 파일 (storage 에서 지우고 message_files.deleted_at 표시 — 대화 글은 남김)
-//  · 보관된 지 10년 넘은 현장의 대화 (개인정보처리방침: 공사 완료 후 10년)
+//  · 보관된 지 5년 넘은 현장의 대화 (개인정보처리방침: 공사 완료 후 5년)
 //  · 처리 완료 후 3년 지난 건축주 관리자 문의 (개인정보처리방침)
 //  POST {dry:true} 면 지울 개수만 돌려줌
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -46,19 +46,19 @@ Deno.serve(async (req: Request) => {
     }
     out.archived_site_files = files;
 
-    // 보관 10년 넘은 현장의 대화 — 남은 첨부를 storage 에서 지운 뒤 글 삭제(첨부 행은 함께 지워짐)
-    const { data: oldSites10 } = await sb.from("sites").select("bm_key").lt("archived_at", daysAgo(3650));
-    const keys10 = (oldSites10 ?? []).map((s: { bm_key: string }) => s.bm_key);
+    // 보관 5년 넘은 현장의 대화 — 남은 첨부를 storage 에서 지운 뒤 글 삭제(첨부 행은 함께 지워짐)
+    const { data: oldSites5 } = await sb.from("sites").select("bm_key").lt("archived_at", daysAgo(365 * 5));
+    const keys5 = (oldSites5 ?? []).map((s: { bm_key: string }) => s.bm_key);
     let msgs = 0;
-    if (keys10.length) {
-      msgs = await count("site_messages", (q) => q.in("bm_key", keys10));
+    if (keys5.length) {
+      msgs = await count("site_messages", (q) => q.in("bm_key", keys5));
       if (!dry && msgs) {
-        const { data: fl } = await sb.from("message_files").select("path").in("bm_key", keys10).is("deleted_at", null);
+        const { data: fl } = await sb.from("message_files").select("path").in("bm_key", keys5).is("deleted_at", null);
         if (fl?.length) { const { error: eRm } = await sb.storage.from("chat-files").remove(fl.map((f: { path: string }) => f.path)); if (eRm) throw eRm; }
-        msgs = await del("site_messages", (q) => q.in("bm_key", keys10));
+        msgs = await del("site_messages", (q) => q.in("bm_key", keys5));
       }
     }
-    out.archived_site_messages_10y = msgs;
+    out.archived_site_messages_5y = msgs;
 
     // 처리 완료 후 3년 지난 건축주 문의
     const oldInq = (q: any) => q.eq("page", "owner-app").eq("status", "done").lt("updated_at", daysAgo(365 * 3));
